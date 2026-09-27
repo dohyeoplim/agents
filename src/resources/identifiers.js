@@ -15,6 +15,8 @@ export function slackFileIds(text) {
 }
 
 export function fileKind(file) {
+    if (["image/png", "image/jpeg", "image/webp"].includes(file.mimetype) ||
+        ["png", "jpg", "jpeg", "webp"].includes(file.filetype)) return "image";
     if (file.mimetype === "application/pdf" || file.filetype === "pdf") return "pdf";
     if (["quip", "canvas", "html"].includes(file.filetype) ||
         ["text/html", "application/vnd.slack-docs"].includes(file.mimetype)) return "html";

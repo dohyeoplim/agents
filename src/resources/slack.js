@@ -1,5 +1,6 @@
 import { isFileId, slackFileIds, fileKind, fileChannels } from "./identifiers.js";
 import { readDocument } from "./reader.js";
+import { imageInput } from "./images.js";
 
 const maxBytes = 5 * 1024 * 1024;
 const fileHosts = new Set(["files.slack.com", "files-origin.slack.com"]);
@@ -58,7 +59,8 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
                 const result = await call("files.list", { channel, count: "20", page }, signal);
                 for (const file of result.files || []) {
                     if (isFileId(file.id) && fileKind(file)) {
-                        items.push({ id: file.id, title: file.title || file.name, url: file.permalink });
+                        items.push({ id: file.id, title: file.title || file.name, url: file.permalink,
+                            kind: fileKind(file) });
                     }
                 }
                 if (!result.paging?.pages || page >= result.paging.pages) break;
@@ -120,8 +122,15 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
         }
         if (file.is_external) throw Error("External files need access to their original provider");
         const kind = fileKind(file);
-        if (!kind) throw Error("Supported formats: Canvas, PDF, HTML, Markdown and text");
+        if (!kind) throw Error("Supported formats: Canvas, PDF, HTML, Markdown, text, PNG, JPEG and WebP");
         if (file.size > maxBytes) throw Error("File exceeds the 5 MB limit");
+        if (kind === "image") {
+            const url = file.url_private_download || file.url_private;
+            if (!url) throw Error("Slack did not provide a readable file URL");
+            return { id, title: file.title || file.name || id, url: file.permalink,
+                text: "Attached image provided to the model.", image: imageInput(await download(url, signal)),
+                embedded: [], truncated: false };
+        }
         const version = JSON.stringify([id, file.updated, file.edit_timestamp, file.size]);
         let parsed = texts.get(version);
         if (!parsed || parsed.until <= Date.now()) {
@@ -142,7 +151,7 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
         const budget = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60000)]);
         const available = await catalog(task.channel, { signal: budget });
         const terms = (task.prompt.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).slice(0, 30);
-        const ranked = available.items.filter((item) => item.id).map((item) => ({
+        const ranked = available.items.filter((item) => item.id && item.kind !== "image").map((item) => ({
             ...item,
             score: terms.reduce((sum, term) => sum + Number((item.title || "").toLowerCase().includes(term)), 0),
         })).sort((a, b) => b.score - a.score);
@@ -170,7 +179,13 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
             }
         }
         if (queue.length) notices.push("Only four source files are read per request. Use !read to choose a file");
-        return { sources, notices };
+        const images = [];
+        for (const source of sources) {
+            if (!source.image) continue;
+            images.push(source.image);
+            source.text = `Attached image ${images.length} is provided to the model.`;
+        }
+        return { sources, notices, images };
     }
 
     return { catalog, read, collect };

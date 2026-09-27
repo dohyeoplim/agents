@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createWorker } from "../../src/agents/worker.js";
 import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
+import { workerResponse } from "../../src/tasks/response.js";
 
 async function fixture(t, run) {
     const root = await mkdtemp(path.join(os.tmpdir(), "worker-"));
@@ -70,4 +71,21 @@ test("worker cancellation", async (t) => {
     await started;
     assert.equal((await request("/cancel", { id })).status, 200);
     assert.equal((await running).status, 500);
+});
+
+test("worker streaming", async (t) => {
+    const request = await fixture(t, async ({ onText, images }) => {
+        assert.equal(images.length, 1);
+        onText("Hello ".repeat(30));
+        return { session: randomUUID(), answer: "Complete" };
+    });
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/" +
+        "x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
+    const response = await request("/run", { channel: "C1", prompt: "Image", images: [png], stream: true });
+    const updates = [];
+    const result = await workerResponse(response, (text) => updates.push(text));
+    assert.equal(updates.length, 1);
+    assert.equal(result.answer, "Complete");
+    const invalid = await request("/run", { channel: "C1", prompt: "Image", images: ["file:///codex/auth.json"] });
+    assert.equal(invalid.status, 400);
 });

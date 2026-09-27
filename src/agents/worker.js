@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { confined } from "../shared/paths.js";
 import { SerialQueue } from "../shared/queue.js";
 import { loadConfig } from "../channels/config.js";
-import { runCodex } from "./codex.js";
+import { runAppServer } from "./app-server.js";
+import { validateImages } from "../resources/images.js";
 import { loadProfiles, resolveProfile } from "./profiles.js";
 import { loadSkills, resolveSkill } from "./skills.js";
 
 export function createWorker({
-    config = loadConfig, profiles = loadProfiles, skills = loadSkills, run = runCodex,
+    config = loadConfig, profiles = loadProfiles, skills = loadSkills, run = runAppServer,
     workspace = "/workspace", agent = process.env.AGENT_ID,
 } = {}) {
     const queue = new SerialQueue();
@@ -16,6 +17,10 @@ export function createWorker({
     return http.createServer(async (req, res) => {
         const reply = (status, data) => {
             if (res.destroyed) return;
+            if (res.headersSent) {
+                res.end(JSON.stringify({ type: status === 200 ? "result" : "error", ...data }) + "\n");
+                return;
+            }
             res.writeHead(status, { "Content-Type": "application/json" });
             res.end(JSON.stringify(data));
         };
@@ -28,13 +33,15 @@ export function createWorker({
             let size = 0;
             for await (const part of req) {
                 size += part.length;
-                if (size > 128000) return reply(413, { error: "Too large" });
+                if (size > 29 * 1024 * 1024) return reply(413, { error: "Too large" });
                 parts.push(part);
             }
             const input = JSON.parse(Buffer.concat(parts).toString("utf8"));
             if (!input || typeof input !== "object" || Array.isArray(input)) {
                 return reply(400, { error: "Invalid request" });
             }
+            try { validateImages(input.images); }
+            catch { return reply(400, { error: "Invalid images" }); }
             if (req.url === "/cancel") {
                 const controller = jobs.get(input.id);
                 controller?.abort();
@@ -69,6 +76,11 @@ export function createWorker({
                     const cwd = await confined(workspace, current.cwd);
                     const profile = resolveProfile(await profiles(), current, input.profile);
                     const skill = resolveSkill(await skills(), profile, input.skill);
+                    if (input.stream === true) {
+                        res.writeHead(200, { "Content-Type": "application/x-ndjson" });
+                        res.flushHeaders();
+                    }
+                    let streamed = "";
                     return run({
                         cwd,
                         session: input.session,
@@ -76,6 +88,12 @@ export function createWorker({
                         policy: profile,
                         timeout: profile.timeoutSeconds * 1000,
                         signal: controller.signal,
+                        images: input.images || [],
+                        onText: input.stream === true ? (text) => {
+                            if (text.startsWith(streamed) && text.length - streamed.length < 128) return;
+                            streamed = text;
+                            if (!res.destroyed) res.write(JSON.stringify({ type: "text", text }) + "\n");
+                        } : undefined,
                         prompt: [
                             profile.instructions,
                             current.instructions || "Help the user with this workspace.",

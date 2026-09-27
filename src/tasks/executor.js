@@ -3,9 +3,10 @@ import { withSlackActivity } from "../slack/activity.js";
 import { knowledgeContext } from "../knowledge/memory.js";
 import { sessionFor } from "./runtime.js";
 import { resourceContext } from "../resources/context.js";
+import { workerResponse } from "./response.js";
 
 export function createTaskExecutor({
-    state, token, resources, config = loadConfig, request = fetch, activity = withSlackActivity,
+    state, token, resources, streams, config = loadConfig, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
         const current = await config();
@@ -36,11 +37,12 @@ export function createTaskExecutor({
                         profile: task.profile, skill: task.skill, session: sessionFor(data, task),
                         context: knowledgeContext(data, task, task.prompt),
                         sourceContext: resourceContext(sources, task.prompt),
+                        images: sources.images || [], stream: Boolean(streams && !task.scheduleId),
                     }),
                     signal: AbortSignal.any([signal, AbortSignal.timeout(620000)]),
                 });
                 if (!response.ok) throw Error("Worker failed");
-                const result = await response.json();
+                const result = await workerResponse(response, (text) => streams?.update(task, text));
                 if (typeof result.answer !== "string" || !/^[0-9a-f-]{36}$/i.test(result.session || "")) {
                     throw Error("Invalid worker response");
                 }
