@@ -25,6 +25,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const request = JSON.parse(line);
     if (request.id === undefined) return;
     if (request.method.startsWith("thread/")) {
+        const personal = request.params.config["mcp_servers.personal"];
+        if (process.env.PERSONAL_TOOLS_TOKEN && personal.default_tools_approval_mode !== "approve") process.exit(1);
         send({ id: request.id, result: { thread: { id: threadId } } });
         return;
     }
@@ -48,7 +50,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const options = { home, cwd: home, executable, timeout: 2000 };
     const first = await runAppServer({ ...options, prompt: "hello", onText: (text) => updates.push(text) });
     assert.deepEqual(updates, ["Hello", "Hello world", "Hello world"]);
-    const resumed = await runAppServer({ ...options, session: first.session, prompt: "image", images: ["data:test"] });
+    const resumed = await runAppServer({ ...options, session: first.session, prompt: "image", images: ["data:test"],
+        toolToken: "t".repeat(43) });
     assert.equal(resumed.answer, "Image received");
     await assert.rejects(runAppServer({ ...options, prompt: "fail" }));
     await assert.rejects(runAppServer({ ...options, prompt: "wait", timeout: 100 }));

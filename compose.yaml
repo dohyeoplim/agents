@@ -9,6 +9,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./data/gateway:/state
+      - ./data/secrets:/run/secrets:ro
     networks: [bridge, internet]
     depends_on:
       assistant:
@@ -30,7 +31,9 @@ services:
       AGENT_ID: assistant
       CODEX_HOME: /codex
     volumes:
-      - ./config:/config:ro
+      - ./config/routes.json:/config/routes.json:ro
+      - ./config/profiles.json:/config/profiles.json:ro
+      - ./config/skills.json:/config/skills.json:ro
       - ./data/assistant/codex:/codex
       - ./data/assistant/workspace:/workspace
     networks: [bridge, internet]
