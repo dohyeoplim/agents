@@ -7,13 +7,21 @@ import { loadProfiles, profileFor } from "../agents/profiles.js";
 import { loadSkills } from "../agents/skills.js";
 import { commandReply, requestedTask } from "./commands.js";
 
-export function createMessageSender(client) {
+export function createMessageSender(client, profiles = loadProfiles) {
     return async function post(context, text) {
+        const available = context.profile ? await profiles() : {};
+        const username = Object.hasOwn(available, context.profile) ? available[context.profile].name : undefined;
         for (const part of markdownMessages(text)) {
-            await client.chat.postMessage({
+            const message = {
                 channel: context.channel, thread_ts: context.thread, markdown_text: part,
                 parse: "none", link_names: false, unfurl_links: false, unfurl_media: false,
-            });
+            };
+            try {
+                await client.chat.postMessage({ ...message, ...(username ? { username } : {}) });
+            } catch (error) {
+                if (!username || error.data?.error !== "missing_scope") throw error;
+                await client.chat.postMessage(message);
+            }
         }
     };
 }

@@ -12,6 +12,7 @@
                 "app_mentions:read",
                 "assistant:write",
                 "chat:write",
+                "chat:write.customize",
                 "channels:history",
                 "channels:read",
                 "files:read",

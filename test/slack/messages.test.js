@@ -64,3 +64,26 @@ test("thread attachments", async () => {
     await send("Explain more", { ts: "100.002", thread_ts: "100.001" });
     assert.deepEqual(jobs[1].fileIds, ["F123456"]);
 });
+
+test("sender names", async () => {
+    const sent = [];
+    const profiles = () => loadProfiles(new URL("../../config/profiles.json", import.meta.url));
+    const post = createMessageSender({ chat: { postMessage: async (message) => sent.push(message) } }, profiles);
+    for (const profile of ["assistant", "scholar", "engineer"]) {
+        await post({ channel: "C1", thread: "100.001", profile }, "Answer");
+    }
+    assert.deepEqual(sent.map((message) => message.username), ["Assistant", "Scholar", "Engineer"]);
+    assert.ok(sent.every((message) => message.markdown_text === "Answer" && !message.icon_emoji && !message.icon_url));
+});
+
+test("sender permissions", async () => {
+    const sent = [];
+    const post = createMessageSender({ chat: { postMessage: async (message) => {
+        sent.push(message);
+        if (message.username) throw Object.assign(Error("Missing scope"), { data: { error: "missing_scope" } });
+    } } }, async () => ({ scholar: { name: "Scholar" } }));
+    await post({ channel: "C1", thread: "100.001", profile: "scholar" }, "Answer");
+    assert.equal(sent.length, 2);
+    assert.equal(sent[1].username, undefined);
+    assert.equal(sent[1].markdown_text, "Answer");
+});

@@ -36,7 +36,7 @@ const titles = createThreadTitles({ state, token: process.env.SLACK_BOT_TOKEN })
 const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN });
 const runtime = new TaskRuntime({
     store: state,
-    deliver: (task, answer) => post(task, "**" + task.profile + "**\n\n" + answer),
+    deliver: post,
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources }),
 });
 const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources });
