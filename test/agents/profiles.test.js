@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadProfiles, profileFor, resolveProfile, validateProfiles } from "../src/profiles.js";
-import { codexArgs } from "../src/codex.js";
+import { loadProfiles, profileFor, resolveProfile, validateProfiles } from "../../src/agents/profiles.js";
+import { codexArgs } from "../../src/agents/codex.js";
 
 test("profile selection", () => {
     assert.equal(profileFor({ name: "reading" }), "scholar");
@@ -11,7 +11,7 @@ test("profile selection", () => {
 });
 
 test("profile validation", async () => {
-    const profiles = await loadProfiles(new URL("../config/profiles.json", import.meta.url));
+    const profiles = await loadProfiles(new URL("../../config/profiles.json", import.meta.url));
     assert.equal(resolveProfile(profiles, { name: "inbox" }, "scholar").id, "scholar");
     assert.throws(() => resolveProfile(profiles, { name: "inbox" }, "unknown"));
     const restricted = structuredClone(profiles);

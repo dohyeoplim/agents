@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseSchedule, addSchedule, changeSchedule, dispatchDue } from "../src/schedules.js";
+import { parseSchedule, addSchedule, changeSchedule, dispatchDue } from "../../src/schedules/schedules.js";
 
 const now = Date.parse("2026-09-27T00:00:00Z");
 const context = {

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { routeEvent, validate } from "../src/core.js";
-import { discoverChannels, loadConfig, registerChannel, saveConfig, updateChannel } from "../src/channels.js";
+import { routeEvent } from "../../src/slack/routing.js";
+import { validate, loadConfig, saveConfig } from "../../src/channels/config.js";
+import { registerChannel, updateChannel } from "../../src/channels/registry.js";
+import { discoverChannels } from "../../src/channels/discovery.js";
 
 const config = {
     team: "T1",

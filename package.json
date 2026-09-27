@@ -10,7 +10,7 @@
         "test": "node --test",
         "gateway": "node src/gateway.js",
         "worker": "node src/worker.js",
-        "channels": "node src/channels.js"
+        "channels": "node src/channels/cli.js"
     },
     "dependencies": {
         "@slack/bolt": "4.6.0"

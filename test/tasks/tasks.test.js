@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { PersistentState } from "../src/state.js";
-import { TaskRuntime, sessionFor } from "../src/tasks.js";
+import { PersistentState } from "../../src/shared/state.js";
+import { TaskRuntime, sessionFor } from "../../src/tasks/runtime.js";
 
 const context = { team: "T1", user: "U1", channel: "C1", thread: "1.1", key: "T1:C1:1.1:assistant" };
 const input = { ...context, profile: "assistant", prompt: "hello" };

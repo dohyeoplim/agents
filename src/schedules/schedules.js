@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { appendTask, ownedTasks } from "./tasks.js";
-import { splitFirst } from "./commands.js";
+import { appendTask, ownedTasks } from "../tasks/runtime.js";
+import { splitFirst } from "../shared/text.js";
 
 export function nextOccurrence(spec, after) {
     if (spec.type === "at") return spec.at > after ? spec.at : null;

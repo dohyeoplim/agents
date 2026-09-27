@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { withSlackActivity } from "../src/activity.js";
+import { withSlackActivity } from "../../src/slack/activity.js";
 
 function mockStatus(results = []) {
     const calls = [];

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { knowledgeContext } from "../src/knowledge.js";
+import { knowledgeContext } from "../../src/knowledge/memory.js";
 
 test("delegation context", () => {
     const context = { team: "T1", user: "U1", key: "thread", profile: "scholar", delegated: true };

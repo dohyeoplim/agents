@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { PersistentState } from "../src/state.js";
-import { addEntry, visibleEntries, forgetEntry, searchEntries, knowledgeContext } from "../src/knowledge.js";
-import { loadSkills, resolveSkill } from "../src/skills.js";
+import { PersistentState } from "../../src/shared/state.js";
+import { addEntry, visibleEntries, forgetEntry, searchEntries, knowledgeContext } from "../../src/knowledge/memory.js";
+import { loadSkills, resolveSkill } from "../../src/agents/skills.js";
 
 const context = { team: "T1", user: "U1", channel: "C1", profile: "scholar", thread: "1.1" };
 
@@ -44,7 +44,7 @@ test("state persistence", async (t) => {
 });
 
 test("skill permissions", async () => {
-    const skills = await loadSkills(new URL("../config/skills.json", import.meta.url));
+    const skills = await loadSkills(new URL("../../config/skills.json", import.meta.url));
     assert.ok(resolveSkill(skills, { skills: ["paper-review"] }, "paper-review").includes("source"));
     assert.throws(() => resolveSkill(skills, { skills: ["paper-review"] }, "code-review"));
 });

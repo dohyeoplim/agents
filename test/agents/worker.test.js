@@ -4,9 +4,9 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { createWorker } from "../src/worker.js";
-import { loadProfiles } from "../src/profiles.js";
-import { loadSkills } from "../src/skills.js";
+import { createWorker } from "../../src/agents/worker.js";
+import { loadProfiles } from "../../src/agents/profiles.js";
+import { loadSkills } from "../../src/agents/skills.js";
 
 async function fixture(t, run) {
     const root = await mkdtemp(path.join(os.tmpdir(), "worker-"));
@@ -14,8 +14,8 @@ async function fixture(t, run) {
     const worker = createWorker({
         workspace: root, agent: "assistant", run,
         config: async () => ({ channels: { C1: { name: "inbox", agent: "assistant", cwd: "inbox" } } }),
-        profiles: () => loadProfiles(new URL("../config/profiles.json", import.meta.url)),
-        skills: () => loadSkills(new URL("../config/skills.json", import.meta.url)),
+        profiles: () => loadProfiles(new URL("../../config/profiles.json", import.meta.url)),
+        skills: () => loadSkills(new URL("../../config/skills.json", import.meta.url)),
     });
     t.after(async () => {
         worker.closeAllConnections();
