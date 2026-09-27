@@ -3,23 +3,24 @@ import { resolveSkill } from "./skills.js";
 import { resolveProfile } from "./profiles.js";
 
 export const helpText = [
-    "!profile — show agent profiles and the current profile",
+    "!profile - show agent profiles and the current profile",
     "!remember <shared|profile|channel> <text>",
-    "!memories — list saved preferences",
+    "!memories - list saved preferences",
     "!note <shared|profile|channel> <title> | <text>",
-    "!search <words> — search accessible notes and memories",
+    "!search <words> - search accessible notes and memories",
     "!forget <entry-id>",
-    "!skills — list this profile's skills",
+    "!new - start a new conversation in this thread",
+    "!skills - list this profile's skills",
     "!skill <name> <request>",
-    "!delegate <profile> <request> — run a separate specialist session",
-    "!tasks — list recent tasks in this channel",
-    "!stop [task-id] — cancel a queued or running task",
-    "!retry <task-id> — explicitly rerun a failed or interrupted task",
-    "!redeliver <task-id> — resend a saved answer without rerunning the model",
+    "!delegate <profile> <request> - run a separate specialist session",
+    "!tasks - list recent tasks in this channel",
+    "!stop [task-id] - cancel a queued or running task",
+    "!retry <task-id> - explicitly rerun a failed or interrupted task",
+    "!redeliver <task-id> - resend a saved answer without rerunning the model",
     "!schedule every 1h [--on-change] <request>",
     "!schedule daily 09:00 Asia/Seoul [--on-change] <request>",
     "!schedule at <ISO-date-with-timezone> <request>",
-    "!schedules — list schedules in this channel",
+    "!schedules - list schedules in this channel",
     "!schedule pause|resume|remove <schedule-id>",
 ].join("\n");
 
@@ -41,10 +42,10 @@ export async function knowledgeCommand(command, context, store, profiles, skills
     if (name === "help") return helpText;
     if (name === "profile") {
         return [`Current profile: ${context.profile}`, ...Object.entries(profiles).map(([id, item]) =>
-            `${id} — ${item.name}; sandbox=${item.sandbox}; web=${item.webSearch}`)].join("\n");
+            `${id} - ${item.name}; sandbox=${item.sandbox}; web=${item.webSearch}`)].join("\n");
     }
     if (name === "skills") {
-        return profile.skills.map((id) => `${id} — ${skills[id]?.name || "Unavailable"}`).join("\n") || "No skills";
+        return profile.skills.map((id) => `${id} - ${skills[id]?.name || "Unavailable"}`).join("\n") || "No skills";
     }
     if (name === "remember" || name === "note") {
         const [scope, body] = splitFirst(args);
@@ -63,7 +64,7 @@ export async function knowledgeCommand(command, context, store, profiles, skills
     }
     if (name === "forget") {
         await store.update((data) => forgetEntry(data, context, args));
-        return "Entry removed";
+        return "Entry removed from saved memory. Existing conversations may still contain it.";
     }
     if (name === "memories" || name === "search") {
         const entries = name === "memories"

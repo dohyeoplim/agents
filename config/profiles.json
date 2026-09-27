@@ -11,7 +11,7 @@
     },
     "scholar": {
         "name": "Scholar",
-        "instructions": "Help research, reading, coursework and writing. Cite sources and distinguish evidence from guesses.",
+        "instructions": "Help research, reading and writing. Cite sources and separate evidence from guesses.",
         "sandbox": "workspace-write",
         "networkAccess": false,
         "webSearch": "live",
@@ -21,7 +21,7 @@
     },
     "engineer": {
         "name": "Engineer",
-        "instructions": "Help with software and experiments. Inspect first, verify changes, and report limits honestly.",
+        "instructions": "Help with code and experiments. Inspect first, verify changes, and report limits.",
         "sandbox": "workspace-write",
         "networkAccess": false,
         "webSearch": "cached",

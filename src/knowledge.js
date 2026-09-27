@@ -50,5 +50,20 @@ export function knowledgeContext(data, context, query) {
             id: entry.id, title: entry.title, text: entry.text.slice(0, 1600),
             channel: entry.channel, thread: entry.thread, date: entry.createdAt,
         }));
-    return JSON.stringify({ memory, notes }).slice(0, 20000);
+    const parent = context.delegated ? Object.values(data.tasks || {}).filter((task) =>
+        task.key === context.key && task.team === context.team && task.user === context.user &&
+        task.status === "completed" && task.id !== context.id)
+        .sort((a, b) => b.finishedAt - a.finishedAt)[0] : null;
+    const result = {
+        memory, notes,
+        parent: parent ? {
+            task: parent.id, profile: parent.profile,
+            request: parent.prompt.slice(0, 1500), answer: parent.answer.slice(0, 4000),
+        } : undefined,
+    };
+    while (JSON.stringify(result).length > 20000) {
+        if (result.notes.length) result.notes.pop();
+        else result.memory.shift();
+    }
+    return JSON.stringify(result);
 }
