@@ -1,6 +1,7 @@
 import bolt from "@slack/bolt";
 import { routeEvent, Store, SerialQueue, chunks } from "./core.js";
 import { loadConfig } from "./channels.js";
+import { withSlackActivity } from "./activity.js";
 
 const config = await loadConfig();
 
@@ -72,39 +73,43 @@ async function handle({ body, event }) {
                     unfurl_links: false,
                     unfurl_media: false,
                 });
-            try {
-                const response = await fetch(`http://${route.agent}:8080/run`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        channel: event.channel,
-                        prompt,
-                        session: store.data.threads[key].session,
-                    }),
-                    signal: AbortSignal.timeout(620000),
-                });
-                if (!response.ok) throw Error("Worker failed");
-                const result = await response.json();
-                if (
-                    typeof result.answer !== "string" ||
-                    !/^[0-9a-f-]{36}$/i.test(result.session ?? "")
-                )
-                    throw Error("Invalid response");
-                store.data.threads[key].session = result.session;
-                await store.save();
-                const safe = result.answer.replace(
-                    /xox[baprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|sk-[A-Za-z0-9_-]+/g,
-                    "[REDACTED]",
-                );
-                for (const part of chunks(safe.slice(0, 28000)))
-                    await post(part);
-            } catch {
-                await post(
-                    "작업을 완료하지 못했습니다. " +
-                    "서버의 로그인 상태와 실행 환경을 확인한 뒤 " +
-                    "새 메시지로 요청해 주세요.",
-                );
-            }
+            await withSlackActivity(
+                { token: process.env.SLACK_BOT_TOKEN, channel: event.channel, thread },
+                async () => {
+                    try {
+                        const response = await fetch(`http://${route.agent}:8080/run`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                channel: event.channel,
+                                prompt,
+                                session: store.data.threads[key].session,
+                            }),
+                            signal: AbortSignal.timeout(620000),
+                        });
+                        if (!response.ok) throw Error("Worker failed");
+                        const result = await response.json();
+                        if (
+                            typeof result.answer !== "string" ||
+                            !/^[0-9a-f-]{36}$/i.test(result.session ?? "")
+                        )
+                            throw Error("Invalid response");
+                        store.data.threads[key].session = result.session;
+                        await store.save();
+                        const safe = result.answer.replace(
+                            /xox[baprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|sk-[A-Za-z0-9_-]+/g,
+                            "[REDACTED]",
+                        );
+                        for (const part of chunks(safe.slice(0, 28000)))
+                            await post(part);
+                    } catch {
+                        await post(
+                            "Unable to complete the task. " +
+                            "Check the server login and runtime, then send a new message to try again.",
+                        );
+                    }
+                },
+            );
         });
     } catch {
         console.error("Event processing failed");
