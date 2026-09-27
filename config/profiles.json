@@ -4,7 +4,7 @@
         "instructions": "Help with personal planning and general tasks. State clearly what has actually been done.",
         "sandbox": "workspace-write",
         "networkAccess": false,
-        "webSearch": "cached",
+        "webSearch": "live",
         "timeoutSeconds": 600,
         "skills": ["daily-review"],
         "delegates": ["scholar", "engineer"]
@@ -24,7 +24,7 @@
         "instructions": "Help with code and experiments. Inspect first, verify changes, and report limits.",
         "sandbox": "workspace-write",
         "networkAccess": false,
-        "webSearch": "cached",
+        "webSearch": "live",
         "timeoutSeconds": 600,
         "skills": ["code-review"],
         "delegates": ["assistant", "scholar"]

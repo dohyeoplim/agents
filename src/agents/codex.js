@@ -15,7 +15,7 @@ export function codexArgs(session, model, policy = {}) {
         "-c",
         `sandbox_workspace_write.network_access=${policy.networkAccess === true}`,
         "-c",
-        `web_search=${JSON.stringify(policy.webSearch || "disabled")}`,
+        `web_search=${JSON.stringify(policy.webSearch || "live")}`,
         "-c",
         'shell_environment_policy.inherit="none"',
         "-c",

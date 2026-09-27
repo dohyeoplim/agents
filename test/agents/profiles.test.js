@@ -30,3 +30,10 @@ test("profile policies", () => {
         assert.ok(args.includes("sandbox_workspace_write.network_access=false"));
     }
 });
+
+test("live search defaults", async () => {
+    const profiles = await loadProfiles(new URL("../../config/profiles.json", import.meta.url));
+    assert.ok(Object.values(profiles).every((profile) => profile.webSearch === "live"));
+    assert.ok(codexArgs().includes('web_search="live"'));
+    assert.ok(codexArgs(undefined, undefined, { webSearch: "disabled" }).includes('web_search="disabled"'));
+});
