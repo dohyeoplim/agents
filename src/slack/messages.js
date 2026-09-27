@@ -11,18 +11,25 @@ export function createMessageSender(client, profiles = loadProfiles) {
     return async function post(context, text) {
         const available = context.profile ? await profiles() : {};
         const username = Object.hasOwn(available, context.profile) ? available[context.profile].name : undefined;
+        let first;
+        let thread = context.thread;
         for (const part of markdownMessages(text)) {
             const message = {
-                channel: context.channel, thread_ts: context.thread, markdown_text: part,
+                channel: context.channel, thread_ts: thread, markdown_text: part,
+                ...(!first && context.deliveryId ? { client_msg_id: context.deliveryId } : {}),
                 parse: "none", link_names: false, unfurl_links: false, unfurl_media: false,
             };
+            let sent;
             try {
-                await client.chat.postMessage({ ...message, ...(username ? { username } : {}) });
+                sent = await client.chat.postMessage({ ...message, ...(username ? { username } : {}) });
             } catch (error) {
                 if (!username || error.data?.error !== "missing_scope") throw error;
-                await client.chat.postMessage(message);
+                sent = await client.chat.postMessage(message);
             }
+            first ??= sent;
+            thread ??= sent?.ts;
         }
+        return first;
     };
 }
 

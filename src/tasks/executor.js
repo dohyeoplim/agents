@@ -6,7 +6,8 @@ import { resourceContext } from "../resources/context.js";
 import { workerResponse } from "./response.js";
 
 export function createTaskExecutor({
-    state, token, resources, streams, config = loadConfig, request = fetch, activity = withSlackActivity,
+    state, token, resources, streams, toolServer, briefingContext,
+    config = loadConfig, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
         const current = await config();
@@ -15,6 +16,7 @@ export function createTaskExecutor({
             throw Error("Task is no longer authorized");
         }
         const endpoint = "http://" + route.agent + ":8080";
+        const grant = toolServer?.grant(task, signal);
         const abort = () => {
             request(endpoint + "/cancel", {
                 method: "POST", headers: { "Content-Type": "application/json" },
@@ -23,12 +25,16 @@ export function createTaskExecutor({
         };
         signal.addEventListener("abort", abort, { once: true });
         try {
-            return await activity({
+            const showActivity = task.briefingDate ? async (context, run) => run() : activity;
+            return await showActivity({
                 token, channel: task.channel, thread: task.thread,
             }, async () => {
                 if (signal.aborted) throw Error("Task cancelled");
                 const data = state.snapshot();
-                const sources = resources ? await resources.collect(task, signal) : { sources: [], notices: [] };
+                const sources = resources && !task.briefingDate ? await resources.collect(task, signal) :
+                    { sources: [], notices: [] };
+                const sourceContext = task.briefingDate ? await briefingContext(task, signal) :
+                    resourceContext(sources, task.prompt);
                 if (signal.aborted) throw Error("Task cancelled");
                 const response = await request(endpoint + "/run", {
                     method: "POST", headers: { "Content-Type": "application/json" },
@@ -36,8 +42,9 @@ export function createTaskExecutor({
                         id: task.id, channel: task.channel, prompt: task.prompt,
                         profile: task.profile, skill: task.skill, session: sessionFor(data, task),
                         context: knowledgeContext(data, task, task.prompt),
-                        sourceContext: resourceContext(sources, task.prompt),
-                        images: sources.images || [], stream: Boolean(streams && !task.scheduleId),
+                        sourceContext,
+                        images: sources.images || [], stream: Boolean(streams && !task.scheduleId && !task.briefingDate),
+                        toolToken: grant?.token,
                     }),
                     signal: AbortSignal.any([signal, AbortSignal.timeout(620000)]),
                 });
@@ -49,6 +56,7 @@ export function createTaskExecutor({
                 return result;
             });
         } finally {
+            grant?.revoke();
             signal.removeEventListener("abort", abort);
         }
     };

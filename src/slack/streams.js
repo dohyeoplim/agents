@@ -59,6 +59,7 @@ export function createSlackStreams({ state, token, post, request = fetch, profil
         await call("chat.update", { channel: task.channel, ts: saved.streamTs, markdown_text: parts[0],
             parse: "none", link_names: false });
         for (const part of parts.slice(1)) await post(task, part);
+        return { ts: saved.streamTs };
     }
 
     return { update, deliver };

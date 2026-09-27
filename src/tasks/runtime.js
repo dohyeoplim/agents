@@ -8,6 +8,7 @@ export function taskSpec(input, now = Date.now()) {
         thread: input.thread, key: input.key, profile: input.profile, prompt: input.prompt,
         skill: input.skill, delegated: input.delegated === true, scheduleId: input.scheduleId,
         fileIds: input.fileIds || [],
+        briefingDate: input.briefingDate, briefingDue: input.briefingDue,
         status: "queued", delivery: "none", createdAt: now,
     };
 }
@@ -37,7 +38,7 @@ export function findTask(data, context, selector) {
 }
 
 export function sessionFor(data, task) {
-    if (task.scheduleId) return undefined;
+    if (task.scheduleId || task.briefingDate) return undefined;
     const thread = data.threads?.[task.key];
     if (thread?.sessions?.[task.profile + ":" + task.user]) return thread.sessions[task.profile + ":" + task.user];
     if (thread?.owner && thread.owner !== task.user) return undefined;
