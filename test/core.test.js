@@ -175,6 +175,15 @@ process.stdin.on("end", () => {
             timeout: 100,
         }),
     );
+    const controller = new AbortController();
+    const cancelled = runCodex({
+        cwd: dir,
+        prompt: "timeout",
+        executable: exe,
+        signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(cancelled);
 });
 
 test("chunks preserve Unicode characters", () =>
