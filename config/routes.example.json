@@ -1,0 +1,13 @@
+{
+    "team": "T_REPLACE",
+    "users": ["U_REPLACE"],
+    "channels": {
+        "C_REPLACE": {
+            "name": "inbox",
+            "enabled": true,
+            "agent": "assistant",
+            "cwd": "projects",
+            "instructions": "You are a personal workspace assistant. Keep credentials private. Explain completed work and failures clearly."
+        }
+    }
+}
