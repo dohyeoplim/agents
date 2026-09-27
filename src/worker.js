@@ -2,6 +2,7 @@ import http from "node:http";
 import { confined, SerialQueue } from "./core.js";
 import { loadConfig } from "./channels.js";
 import { runCodex } from "./codex.js";
+import { loadProfiles, resolveProfile } from "./profiles.js";
 
 await loadConfig();
 const agent = process.env.AGENT_ID;
@@ -39,11 +40,15 @@ http.createServer(async (req, res) => {
             return reply(400, { error: "Invalid request" });
         const result = await queue.run(async () => {
             const cwd = await confined("/workspace", route.cwd);
+            const profile = resolveProfile(await loadProfiles(), route);
             return runCodex({
                 cwd,
                 session: input.session,
-                model: route.model,
+                model: route.model || profile.model,
+                policy: profile,
+                timeout: profile.timeoutSeconds * 1000,
                 prompt: [
+                    profile.instructions,
                     route.instructions || "Help the user with this workspace.",
                     `User request:\n${input.prompt}`,
                 ].join("\n\n"),

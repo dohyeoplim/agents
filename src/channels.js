@@ -2,6 +2,7 @@ import { readFile, writeFile, rename, mkdir, realpath, lstat, unlink } from "nod
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "./core.js";
+import { loadProfiles, profileFor } from "./profiles.js";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -49,7 +50,7 @@ export function updateChannel(config, selector, patch) {
         (key) => key === selector || config.channels[key].name === selector,
     );
     if (!id) throw Error("Channel is not registered");
-    if (Object.keys(patch).some((key) => !["enabled", "instructions"].includes(key))) {
+    if (Object.keys(patch).some((key) => !["enabled", "instructions", "profile"].includes(key))) {
         throw Error("Unsupported channel setting");
     }
     return validate({
@@ -145,6 +146,7 @@ async function main(args) {
             name: route.name || route.cwd,
             enabled: route.enabled !== false,
             agent: route.agent,
+            profile: profileFor(route),
             folder: route.cwd,
             role: route.instructions || "",
         })));
@@ -157,6 +159,10 @@ async function main(args) {
         updated = updateChannel(config, selector, { enabled: command === "enable" });
     } else if (command === "role" && selector && values.length) {
         updated = updateChannel(config, selector, { instructions: values.join(" ") });
+    } else if (command === "profile" && selector && values.length === 1) {
+        const profiles = await loadProfiles(path.join(project, "config/profiles.json"));
+        if (!Object.hasOwn(profiles, values[0])) throw Error("Unknown profile");
+        updated = updateChannel(config, selector, { profile: values[0] });
     } else if (command === "discover" || command === "sync") {
         try {
             process.loadEnvFile(path.join(project, ".env"));
@@ -180,6 +186,7 @@ async function main(args) {
     } else {
         console.log("channels list | discover | sync <names...> | add <ID> <name>");
         console.log("channels enable <ID|name> | disable <ID|name> | role <ID|name> <instructions>");
+        console.log("channels profile <ID|name> <profile>");
         process.exitCode = 1;
         return;
     }

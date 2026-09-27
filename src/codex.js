@@ -1,7 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 
-export function codexArgs(session, model) {
+export function codexArgs(session, model, policy = {}) {
     const args = [
         "exec",
         "--json",
@@ -11,9 +11,11 @@ export function codexArgs(session, model) {
         "-c",
         'approval_policy="never"',
         "-c",
-        'sandbox_mode="workspace-write"',
+        `sandbox_mode=${JSON.stringify(policy.sandbox || "workspace-write")}`,
         "-c",
-        "sandbox_workspace_write.network_access=false",
+        `sandbox_workspace_write.network_access=${policy.networkAccess === true}`,
+        "-c",
+        `web_search=${JSON.stringify(policy.webSearch || "disabled")}`,
         "-c",
         'shell_environment_policy.inherit="none"',
         "-c",
@@ -32,9 +34,12 @@ export function runCodex({
     model,
     timeout = 600000,
     executable = "codex",
+    policy = {},
+    signal,
 }) {
     return new Promise((resolve, reject) => {
-        const child = spawn(executable, codexArgs(session, model), {
+        if (signal?.aborted) return reject(Error("Task cancelled"));
+        const child = spawn(executable, codexArgs(session, model, policy), {
             cwd,
             detached: true,
             stdio: ["pipe", "pipe", "pipe"],
@@ -61,6 +66,9 @@ export function runCodex({
             failed = true;
             kill();
         }, timeout);
+        const abort = () => { failed = true; kill(); };
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
         child.stdout.on("data", (data) => {
             bytes += data.length;
             if (bytes > 8 * 1024 * 1024) {
@@ -93,10 +101,12 @@ export function runCodex({
         child.stdin.on("error", () => {});
         child.on("error", () => {
             clearTimeout(timer);
+            signal?.removeEventListener("abort", abort);
             reject(Error("Codex launch failed"));
         });
         child.on("close", (code) => {
             clearTimeout(timer);
+            signal?.removeEventListener("abort", abort);
             if (
                 code !== 0 ||
                 failed ||

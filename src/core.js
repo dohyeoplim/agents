@@ -36,7 +36,9 @@ export function validate(config) {
             (route.instructions !== undefined &&
                 (typeof route.instructions !== "string" ||
                     route.instructions.length > 8000)) ||
-            (route.model !== undefined && typeof route.model !== "string")
+            (route.model !== undefined && typeof route.model !== "string") ||
+            (route.profile !== undefined &&
+                (typeof route.profile !== "string" || !/^[a-z][a-z0-9-]*$/.test(route.profile)))
         )
             throw Error("Invalid route");
     }
