@@ -1,6 +1,7 @@
 import { routeEvent } from "./routing.js";
 import { SerialQueue } from "../shared/queue.js";
-import { chunks, parseCommand } from "../shared/text.js";
+import { parseCommand } from "../shared/text.js";
+import { markdownMessages } from "./formatting.js";
 import { loadConfig } from "../channels/config.js";
 import { loadProfiles, profileFor } from "../agents/profiles.js";
 import { loadSkills } from "../agents/skills.js";
@@ -8,11 +9,10 @@ import { commandReply, requestedTask } from "./commands.js";
 
 export function createMessageSender(client) {
     return async function post(context, text) {
-        const safe = text.replace(/xox[baprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|sk-[A-Za-z0-9_-]+/g, "[REDACTED]");
-        for (const part of chunks(safe.slice(0, 28000))) {
+        for (const part of markdownMessages(text)) {
             await client.chat.postMessage({
-                channel: context.channel, thread_ts: context.thread, text: part,
-                mrkdwn: false, unfurl_links: false, unfurl_media: false,
+                channel: context.channel, thread_ts: context.thread, markdown_text: part,
+                parse: "none", link_names: false, unfurl_links: false, unfurl_media: false,
             });
         }
     };

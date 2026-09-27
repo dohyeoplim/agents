@@ -32,7 +32,7 @@ if (identity.team_id !== config.team) throw Error("Slack workspace mismatch");
 const post = createMessageSender(app.client);
 const runtime = new TaskRuntime({
     store: state,
-    deliver: (task, answer) => post(task, task.profile + "\n\n" + answer),
+    deliver: (task, answer) => post(task, "**" + task.profile + "**\n\n" + answer),
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN }),
 });
 const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post });

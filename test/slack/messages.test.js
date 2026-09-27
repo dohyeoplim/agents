@@ -51,8 +51,8 @@ test("command dispatch", async () => {
 test("message delivery", async () => {
     const sent = [];
     const post = createMessageSender({ chat: { postMessage: async (message) => sent.push(message) } });
-    await post({ channel: "C1", thread: "100.001" }, "a".repeat(3000) + " xoxb-test-placeholder");
+    await post({ channel: "C1", thread: "100.001" }, "a".repeat(12000) + " xoxb-test-placeholder");
     assert.equal(sent.length, 2);
-    assert.ok(sent[1].text.endsWith("[REDACTED]"));
-    assert.ok(sent.every((message) => message.thread_ts === "100.001" && message.mrkdwn === false));
+    assert.ok(sent[1].markdown_text.endsWith("[REDACTED]"));
+    assert.ok(sent.every((message) => message.thread_ts === "100.001" && message.text === undefined));
 });

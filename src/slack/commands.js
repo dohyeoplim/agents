@@ -25,7 +25,10 @@ export const helpText = [
     "!schedule at <ISO-date-with-timezone> <request>",
     "!schedules - list schedules in this channel",
     "!schedule pause|resume|remove <schedule-id>",
-].join("\n");
+].map((line) => {
+    const [syntax, description] = line.split(" - ");
+    return "`" + syntax + "`" + (description ? " - " + description : "");
+}).join("\n");
 
 export async function commandReply(command, context, { state, runtime, profiles, skills }) {
     const { name, args } = command;
