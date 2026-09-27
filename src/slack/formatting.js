@@ -8,6 +8,14 @@ function plainMentions(text) {
         .replace(/@(here|channel|everyone)\b/g, "@\u200b$1")).join("");
 }
 
+export function streamText(text) {
+    const bounded = take(text, 10500);
+    let end = bounded.search(/\S*$/);
+    const opening = bounded.lastIndexOf("<");
+    if (opening > bounded.lastIndexOf(">")) end = Math.min(end, opening);
+    return plainMentions(redactSecrets(bounded.slice(0, end)));
+}
+
 function take(text, count) {
     if (count < text.length && /[\uD800-\uDBFF]/.test(text[count - 1] || "")) count--;
     return text.slice(0, count);
