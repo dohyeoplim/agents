@@ -40,3 +40,11 @@ test("message routing", () => {
         null,
     );
 });
+
+test("attachment routing", () => {
+    const message = { ...event, text: "", subtype: "file_share", thread_ts: "123.456", files: [{ id: "F123456" }] };
+    const selected = routeEvent(config, { team_id: "T1" }, message, "BOT", () => true);
+    assert.equal(selected.prompt, "Summarize the attached files.");
+    assert.deepEqual(selected.fileIds, ["F123456"]);
+    assert.equal(routeEvent(config, { team_id: "T1" }, message, "BOT", () => false), null);
+});

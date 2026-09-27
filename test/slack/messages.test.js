@@ -56,3 +56,11 @@ test("message delivery", async () => {
     assert.ok(sent[1].markdown_text.endsWith("[REDACTED]"));
     assert.ok(sent.every((message) => message.thread_ts === "100.001" && message.text === undefined));
 });
+
+test("thread attachments", async () => {
+    const { jobs, send } = fixture();
+    await send("<@BOT> Review this", { subtype: "file_share", files: [{ id: "F123456" }] });
+    assert.deepEqual(jobs[0].fileIds, ["F123456"]);
+    await send("Explain more", { ts: "100.002", thread_ts: "100.001" });
+    assert.deepEqual(jobs[1].fileIds, ["F123456"]);
+});

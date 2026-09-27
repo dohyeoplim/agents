@@ -7,6 +7,7 @@ export function taskSpec(input, now = Date.now()) {
         id: randomUUID(), team: input.team, user: input.user, channel: input.channel,
         thread: input.thread, key: input.key, profile: input.profile, prompt: input.prompt,
         skill: input.skill, delegated: input.delegated === true, scheduleId: input.scheduleId,
+        fileIds: input.fileIds || [],
         status: "queued", delivery: "none", createdAt: now,
     };
 }

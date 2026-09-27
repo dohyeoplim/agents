@@ -19,7 +19,7 @@ export function createMessageSender(client) {
 }
 
 export function createMessageHandler({
-    state, runtime, bot, post, titles, config = loadConfig, profiles = loadProfiles, skills = loadSkills,
+    state, runtime, bot, post, titles, resources, config = loadConfig, profiles = loadProfiles, skills = loadSkills,
 }) {
     const events = new SerialQueue();
     async function handle({ body, event }) {
@@ -31,6 +31,13 @@ export function createMessageHandler({
                 if (data.events[selected.eventId]) return false;
                 data.events[selected.eventId] = Date.now();
                 data.threads[selected.key] ??= { session: null };
+                if (selected.fileIds.length) {
+                    const thread = data.threads[selected.key];
+                    thread.filesByUser ??= {};
+                    thread.filesByUser[event.user] = [...new Set([
+                        ...(thread.filesByUser[event.user] || []), ...selected.fileIds,
+                    ])].slice(-6);
+                }
                 for (const [id, at] of Object.entries(data.events)) {
                     if (Date.now() - at > 7 * 86400000) delete data.events[id];
                 }
@@ -40,6 +47,7 @@ export function createMessageHandler({
             const context = {
                 team: current.team, user: event.user, channel: event.channel, thread: selected.thread,
                 key: selected.key, profile: profileFor(selected.route),
+                fileIds: state.snapshot().threads[selected.key].filesByUser?.[event.user] || [],
             };
             try {
                 const availableProfiles = await profiles();
@@ -48,7 +56,7 @@ export function createMessageHandler({
                 const command = parseCommand(selected.prompt);
                 if (command) {
                     const response = await commandReply(command, context, {
-                        state, runtime, titles, profiles: availableProfiles, skills: availableSkills,
+                        state, runtime, titles, resources, profiles: availableProfiles, skills: availableSkills,
                     });
                     if (response !== null) return post(context, response);
                 }
@@ -58,7 +66,9 @@ export function createMessageHandler({
                     catch { console.warn("Thread title update unavailable"); }
                 }
                 const busy = runtime.pumping;
-                const id = await runtime.enqueue({ ...context, ...task });
+                const attached = state.snapshot().threads[selected.key].filesByUser?.[event.user] || [];
+                const fileIds = [...new Set([...(task.fileIds || []), ...selected.fileIds, ...attached])].slice(0, 6);
+                const id = await runtime.enqueue({ ...context, ...task, fileIds });
                 if (busy) await post(context, "Queued task " + id.slice(0, 8) + ". Use !tasks to check its status.");
             } catch (error) {
                 await post(context, error.message + "\nUse !help for available commands.");

@@ -39,12 +39,14 @@ test("worker context", async (t) => {
     });
     const response = await request("/run", {
         channel: "C1", prompt: "Read this", profile: "scholar", skill: "paper-review", context: "Saved preference",
+        sourceContext: "Canvas reference text",
     });
     assert.equal(response.status, 200);
     assert.equal(options.policy.id, "scholar");
     assert.equal(options.policy.webSearch, "live");
     assert.ok(options.cwd.endsWith("/inbox"));
     assert.ok(options.prompt.includes("Saved preference"));
+    assert.ok(options.prompt.includes("Canvas reference text"));
     assert.ok(options.prompt.includes("limitations"));
 });
 

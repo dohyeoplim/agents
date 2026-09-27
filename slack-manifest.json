@@ -14,6 +14,9 @@
                 "chat:write",
                 "channels:history",
                 "channels:read",
+                "files:read",
+                "bookmarks:read",
+                "canvases:read",
                 "groups:history"
             ]
         }

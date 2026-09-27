@@ -13,6 +13,7 @@ test("worker request", async () => {
     const execute = createTaskExecutor({
         state: { snapshot: () => ({ threads: { thread: { session } } }) },
         token: "test",
+        resources: { collect: async () => ({ sources: [{ id: "F123456", text: "Source text" }], notices: [] }) },
         config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
         activity: async (context, run) => run(),
         request: async (url, options) => {
@@ -25,6 +26,7 @@ test("worker request", async () => {
     assert.equal(calls[0].url, "http://assistant:8080/run");
     assert.equal(calls[0].body.session, session);
     assert.equal(calls[0].body.profile, "assistant");
+    assert.equal(JSON.parse(calls[0].body.sourceContext).sources[0].text, "Source text");
 });
 
 test("worker access", async () => {

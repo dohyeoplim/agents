@@ -6,6 +6,7 @@ import { createTaskExecutor } from "./tasks/executor.js";
 import { createMessageSender, createMessageHandler } from "./slack/messages.js";
 import { startScheduler } from "./schedules/runner.js";
 import { createThreadTitles } from "./slack/titles.js";
+import { createSlackResources } from "./resources/slack.js";
 
 const config = await loadConfig();
 const state = await new PersistentState("/state/conversations.json", {
@@ -32,12 +33,13 @@ if (identity.team_id !== config.team) throw Error("Slack workspace mismatch");
 
 const post = createMessageSender(app.client);
 const titles = createThreadTitles({ state, token: process.env.SLACK_BOT_TOKEN });
+const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN });
 const runtime = new TaskRuntime({
     store: state,
     deliver: (task, answer) => post(task, "**" + task.profile + "**\n\n" + answer),
-    execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN }),
+    execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources }),
 });
-const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles });
+const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources });
 
 app.event("app_mention", messages.handle);
 app.event("message", messages.handle);

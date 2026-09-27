@@ -4,6 +4,8 @@ import { resolveProfile } from "../agents/profiles.js";
 import { parseCommand, splitFirst } from "../shared/text.js";
 import { ownedTasks } from "../tasks/runtime.js";
 import { addSchedule, changeSchedule, ownedSchedules } from "../schedules/schedules.js";
+import { isFileId } from "../resources/identifiers.js";
+import { sourceList } from "../resources/context.js";
 
 export const helpText = [
     "!profile - show agent profiles and the current profile",
@@ -14,6 +16,8 @@ export const helpText = [
     "!forget <entry-id>",
     "!new - start a new conversation in this thread",
     "!title [text] - view or change this thread's title",
+    "!sources - list this channel's documents and folder resources",
+    "!read <file-id> [request] - read a Slack file shared with this channel",
     "!skills - list this profile's skills",
     "!skill <name> <request>",
     "!delegate <profile> <request> - run a separate specialist session",
@@ -31,10 +35,11 @@ export const helpText = [
     return "`" + syntax + "`" + (description ? " - " + description : "");
 }).join("\n");
 
-export async function commandReply(command, context, { state, runtime, profiles, skills, titles }) {
+export async function commandReply(command, context, { state, runtime, profiles, skills, titles, resources }) {
     const { name, args } = command;
     const profile = profiles[context.profile];
     if (name === "help") return helpText;
+    if (name === "sources") return sourceList(await resources.catalog(context.channel, { refresh: true }));
     if (name === "title") {
         if (!args) return state.snapshot().threads[context.key]?.title || "No title set";
         const result = await titles.set(context, args);
@@ -97,11 +102,18 @@ export function requestedTask(prompt, profiles, route, skills) {
     const command = parseCommand(prompt);
     let requested;
     let skill;
+    let fileIds;
     if (command?.name === "delegate") [requested, prompt] = splitFirst(command.args);
     else if (command?.name === "skill") [skill, prompt] = splitFirst(command.args);
+    else if (command?.name === "read") {
+        const [id, question] = splitFirst(command.args);
+        if (!isFileId(id)) throw Error("Use a file ID from !sources");
+        fileIds = [id];
+        prompt = question || "Summarize the requested Slack file and cite its source link.";
+    }
     else if (command) throw Error("Unknown command. Use !help");
     if (!prompt.trim() || prompt.length > 16000 || prompt.startsWith("!")) throw Error("Provide a task request");
     const profile = resolveProfile(profiles, route, requested);
     resolveSkill(skills, profile, skill);
-    return { prompt, profile: profile.id, skill, delegated: Boolean(requested) };
+    return { prompt, profile: profile.id, skill, delegated: Boolean(requested), fileIds };
 }

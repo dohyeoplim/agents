@@ -2,9 +2,10 @@ import { loadConfig } from "../channels/config.js";
 import { withSlackActivity } from "../slack/activity.js";
 import { knowledgeContext } from "../knowledge/memory.js";
 import { sessionFor } from "./runtime.js";
+import { resourceContext } from "../resources/context.js";
 
 export function createTaskExecutor({
-    state, token, config = loadConfig, request = fetch, activity = withSlackActivity,
+    state, token, resources, config = loadConfig, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
         const current = await config();
@@ -26,12 +27,15 @@ export function createTaskExecutor({
             }, async () => {
                 if (signal.aborted) throw Error("Task cancelled");
                 const data = state.snapshot();
+                const sources = resources ? await resources.collect(task, signal) : { sources: [], notices: [] };
+                if (signal.aborted) throw Error("Task cancelled");
                 const response = await request(endpoint + "/run", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         id: task.id, channel: task.channel, prompt: task.prompt,
                         profile: task.profile, skill: task.skill, session: sessionFor(data, task),
                         context: knowledgeContext(data, task, task.prompt),
+                        sourceContext: resourceContext(sources, task.prompt),
                     }),
                     signal: AbortSignal.any([signal, AbortSignal.timeout(620000)]),
                 });
