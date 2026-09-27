@@ -1,0 +1,18 @@
+{
+    "daily-review": {
+        "name": "Daily review",
+        "instructions": "Review tasks and notes. List completed work, pending items, and three next priorities."
+    },
+    "paper-review": {
+        "name": "Paper review",
+        "instructions": "Identify the source, question, method, evidence, limitations and useful follow-up questions."
+    },
+    "edit-writing": {
+        "name": "Edit writing",
+        "instructions": "Preserve the author's meaning. Improve clarity and concision. Explain only substantial edits."
+    },
+    "code-review": {
+        "name": "Code review",
+        "instructions": "Inspect code and tests. Prioritize proven defects. Cite files and avoid speculative issues."
+    }
+}
