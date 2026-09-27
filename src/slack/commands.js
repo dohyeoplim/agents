@@ -13,6 +13,7 @@ export const helpText = [
     "!search <words> - search accessible notes and memories",
     "!forget <entry-id>",
     "!new - start a new conversation in this thread",
+    "!title [text] - view or change this thread's title",
     "!skills - list this profile's skills",
     "!skill <name> <request>",
     "!delegate <profile> <request> - run a separate specialist session",
@@ -30,10 +31,16 @@ export const helpText = [
     return "`" + syntax + "`" + (description ? " - " + description : "");
 }).join("\n");
 
-export async function commandReply(command, context, { state, runtime, profiles, skills }) {
+export async function commandReply(command, context, { state, runtime, profiles, skills, titles }) {
     const { name, args } = command;
     const profile = profiles[context.profile];
     if (name === "help") return helpText;
+    if (name === "title") {
+        if (!args) return state.snapshot().threads[context.key]?.title || "No title set";
+        const result = await titles.set(context, args);
+        return result.synced ? "Title updated: " + result.title :
+            "Title saved locally. Slack sync is unavailable. Check the Agent feature and app permissions.";
+    }
     if (name === "profile") {
         return [`Current profile: ${context.profile}`, ...Object.entries(profiles).map(([id, item]) =>
             `${id} - ${item.name}; sandbox=${item.sandbox}; web=${item.webSearch}`)].join("\n");

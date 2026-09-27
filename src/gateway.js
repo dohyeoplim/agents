@@ -5,6 +5,7 @@ import { TaskRuntime } from "./tasks/runtime.js";
 import { createTaskExecutor } from "./tasks/executor.js";
 import { createMessageSender, createMessageHandler } from "./slack/messages.js";
 import { startScheduler } from "./schedules/runner.js";
+import { createThreadTitles } from "./slack/titles.js";
 
 const config = await loadConfig();
 const state = await new PersistentState("/state/conversations.json", {
@@ -30,15 +31,17 @@ const identity = await app.client.auth.test();
 if (identity.team_id !== config.team) throw Error("Slack workspace mismatch");
 
 const post = createMessageSender(app.client);
+const titles = createThreadTitles({ state, token: process.env.SLACK_BOT_TOKEN });
 const runtime = new TaskRuntime({
     store: state,
     deliver: (task, answer) => post(task, "**" + task.profile + "**\n\n" + answer),
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN }),
 });
-const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post });
+const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles });
 
 app.event("app_mention", messages.handle);
 app.event("message", messages.handle);
+app.event("agent_session_title_changed", titles.changed);
 app.error(async () => console.error("Slack event failed"));
 await runtime.recover();
 await app.start();

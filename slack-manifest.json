@@ -1,12 +1,16 @@
 {
     "display_information": { "name": "Personal Agents" },
     "features": {
+        "agent_view": {
+            "agent_description": "A personal assistant for research, writing, coding and planning."
+        },
         "bot_user": { "display_name": "Assistant", "always_online": false }
     },
     "oauth_config": {
         "scopes": {
             "bot": [
                 "app_mentions:read",
+                "assistant:write",
                 "chat:write",
                 "channels:history",
                 "channels:read",
@@ -17,7 +21,7 @@
     "settings": {
         "socket_mode_enabled": true,
         "event_subscriptions": {
-            "bot_events": ["app_mention", "message.channels", "message.groups"]
+            "bot_events": ["app_mention", "message.channels", "message.groups", "agent_session_title_changed"]
         }
     }
 }

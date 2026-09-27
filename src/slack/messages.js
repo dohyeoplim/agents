@@ -19,7 +19,7 @@ export function createMessageSender(client) {
 }
 
 export function createMessageHandler({
-    state, runtime, bot, post, config = loadConfig, profiles = loadProfiles, skills = loadSkills,
+    state, runtime, bot, post, titles, config = loadConfig, profiles = loadProfiles, skills = loadSkills,
 }) {
     const events = new SerialQueue();
     async function handle({ body, event }) {
@@ -48,11 +48,15 @@ export function createMessageHandler({
                 const command = parseCommand(selected.prompt);
                 if (command) {
                     const response = await commandReply(command, context, {
-                        state, runtime, profiles: availableProfiles, skills: availableSkills,
+                        state, runtime, titles, profiles: availableProfiles, skills: availableSkills,
                     });
                     if (response !== null) return post(context, response);
                 }
                 const task = requestedTask(selected.prompt, availableProfiles, selected.route, availableSkills);
+                if (titles) {
+                    try { await titles.ensure(context, task.prompt); }
+                    catch { console.warn("Thread title update unavailable"); }
+                }
                 const busy = runtime.pumping;
                 const id = await runtime.enqueue({ ...context, ...task });
                 if (busy) await post(context, "Queued task " + id.slice(0, 8) + ". Use !tasks to check its status.");
