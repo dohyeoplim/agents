@@ -14,7 +14,7 @@ const config = {
     },
 };
 
-test("new channels receive independent folders and preserve existing channel settings", () => {
+test("channel registration", () => {
     const added = registerChannel(config, "C2", "research");
     assert.equal(added.channels.C2.cwd, "research");
     assert.equal(added.channels.C2.enabled, true);
@@ -27,7 +27,7 @@ test("new channels receive independent folders and preserve existing channel set
     assert.throws(() => registerChannel(config, "C2", "../escape"));
 });
 
-test("channel and thread sessions remain separate with identical message timestamps", () => {
+test("thread isolation", () => {
     const channels = registerChannel(config, "C2", "research");
     const event = { channel: "C1", user: "U1", ts: "100.001", text: "<@BOT> hello" };
     const select = (message) => routeEvent(channels, { team_id: "T1" }, message, "BOT", () => false);
@@ -41,7 +41,7 @@ test("channel and thread sessions remain separate with identical message timesta
     assert.equal(select({ ...event, text: "No mention" }), null);
 });
 
-test("disabled channels ignore mentions and existing thread replies without removing history", () => {
+test("disabled channels", () => {
     const disabled = updateChannel(config, "inbox", { enabled: false });
     const event = { channel: "C1", user: "U1", ts: "100.002", thread_ts: "100.001", text: "<@BOT> hi" };
     assert.equal(routeEvent(disabled, { team_id: "T1" }, event, "BOT", () => true), null);
@@ -52,7 +52,7 @@ test("disabled channels ignore mentions and existing thread replies without remo
     assert.throws(() => updateChannel(config, "C1", { cwd: "other" }));
 });
 
-test("invalid channel configuration is rejected", () => {
+test("channel validation", () => {
     for (const patch of [{ enabled: "false" }, { instructions: 12 }]) {
         assert.throws(() => updateChannel(config, "C1", patch));
     }
@@ -60,7 +60,7 @@ test("invalid channel configuration is rejected", () => {
     assert.throws(() => validate({ ...config, channels: [] }));
 });
 
-test("channel discovery checks workspace and follows pagination without joining channels", async () => {
+test("channel discovery", async () => {
     const calls = [];
     const request = async (url) => {
         const parsed = new URL(url);
@@ -87,12 +87,12 @@ test("channel discovery checks workspace and follows pagination without joining 
     await assert.rejects(discoverChannels("test-token", "T2", request), /workspace mismatch/);
 });
 
-test("missing scopes produce an actionable error without including credentials", async () => {
+test("missing scopes", async () => {
     const request = async () => ({ ok: true, json: async () => ({ ok: false, error: "missing_scope" }) });
     await assert.rejects(discoverChannels("secret-token", "T1", request), /Add channels:read/);
 });
 
-test("saved configuration reloads after atomic replacement and creates channel folders", async (t) => {
+test("configuration persistence", async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "channels-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const file = path.join(root, "routes.json");

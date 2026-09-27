@@ -7,7 +7,7 @@ import { loadSkills } from "../src/skills.js";
 const profiles = await loadProfiles(new URL("../config/profiles.json", import.meta.url));
 const skills = await loadSkills(new URL("../config/skills.json", import.meta.url));
 
-test("specialist requests and skills are explicit and bounded", () => {
+test("task commands", () => {
     assert.equal(parseCommand("Hello"), null);
     const job = requestedTask("!delegate scholar Review this paper", profiles, { name: "inbox" }, skills);
     assert.equal(job.profile, "scholar");
@@ -18,7 +18,7 @@ test("specialist requests and skills are explicit and bounded", () => {
     assert.throws(() => requestedTask("!delegate scholar !delegate engineer hi", profiles, {}, skills));
 });
 
-test("memory commands save and remove entries without model execution", async () => {
+test("memory commands", async () => {
     const data = {};
     const store = { snapshot: () => structuredClone(data), update: async (fn) => fn(data) };
     const context = { team: "T1", user: "U1", channel: "C1", profile: "assistant", thread: "1.1" };

@@ -8,7 +8,7 @@ const context = {
 };
 const config = { team: "T1", users: ["U1"], channels: { C1: { enabled: true } } };
 
-test("schedules support explicit timezones, intervals and one-time runs", () => {
+test("schedule parsing", () => {
     assert.equal(parseSchedule("every 1h --on-change Review notes", now).nextRun, now + 3600000);
     assert.equal(parseSchedule("every 1h --on-change Review notes", now).prompt, "Review notes");
     const daily = parseSchedule("daily 09:00 Asia/Seoul Review tasks", now);
@@ -20,7 +20,7 @@ test("schedules support explicit timezones, intervals and one-time runs", () => 
     assert.throws(() => parseSchedule("every 1h !schedule every 1m spam", now));
 });
 
-test("scheduled tasks are claimed atomically and never overlap", () => {
+test("schedule deduplication", () => {
     const data = {};
     const id = addSchedule(data, context, "every 1m Check notes", now);
     assert.equal(dispatchDue(data, config, now + 60000), 1);
@@ -33,7 +33,7 @@ test("scheduled tasks are claimed atomically and never overlap", () => {
     assert.equal(data.schedules[id].nextRun, now + 240000);
 });
 
-test("schedule changes require ownership and disabled channels stop scheduled work", () => {
+test("schedule authorization", () => {
     const data = {};
     const id = addSchedule(data, context, "every 1m Check notes", now);
     assert.throws(() => changeSchedule(data, { ...context, user: "U2" }, id, "remove", now));

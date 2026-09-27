@@ -11,7 +11,7 @@ function mockStatus(results = []) {
     return { calls, request };
 }
 
-test("activity is shown during work and cleared after completion", async () => {
+test("activity lifecycle", async () => {
     const { calls, request } = mockStatus();
     const result = await withSlackActivity({ token: "test", channel: "C1", thread: "123.456", request }, async () => {
         assert.equal(calls.at(-1).status, "processing");
@@ -22,7 +22,7 @@ test("activity is shown during work and cleared after completion", async () => {
     assert.ok(calls.every((call) => call.channel_id === "C1" && call.thread_ts === "123.456"));
 });
 
-test("activity clears when the worker fails without hiding its error", async () => {
+test("activity cleanup", async () => {
     const { calls, request } = mockStatus();
     await assert.rejects(withSlackActivity({ token: "test", channel: "C1", thread: "123.456", request }, async () => {
         throw Error("Worker failure");
@@ -30,7 +30,7 @@ test("activity clears when the worker fails without hiding its error", async () 
     assert.equal(calls.at(-1).status, "active");
 });
 
-test("unsupported agent sessions fall back to thread status and clear it", async () => {
+test("status fallback", async () => {
     const { calls, request } = mockStatus([{ ok: false, error: "feature_disabled" }]);
     await withSlackActivity({ token: "test", channel: "C1", thread: "123.456", request }, async () => {});
     assert.deepEqual(calls.map((call) => call.method), [
@@ -42,7 +42,7 @@ test("unsupported agent sessions fall back to thread status and clear it", async
     assert.equal(calls[2].status, "");
 });
 
-test("Slack status failures do not prevent the reply task", async () => {
+test("status failure", async () => {
     const request = async () => { throw Error("Network unavailable"); };
     const result = await withSlackActivity(
         { token: "test", channel: "C1", thread: "123.456", request },
@@ -51,14 +51,14 @@ test("Slack status failures do not prevent the reply task", async () => {
     assert.equal(result, 42);
 });
 
-test("legacy status works when agent sessions are not authorized for the app", async () => {
+test("legacy authorization", async () => {
     const { calls, request } = mockStatus([{ ok: false, error: "not_authorized" }]);
     await withSlackActivity({ token: "test", channel: "C1", thread: "123.456", request }, async () => {});
     assert.equal(calls[1].method, "assistant.threads.setStatus");
     assert.equal(calls.at(-1).status, "");
 });
 
-test("long tasks refresh activity and release the timer after finishing", async (t) => {
+test("activity refresh", async (t) => {
     t.mock.timers.enable({ apis: ["setInterval"] });
     const { calls, request } = mockStatus();
     let finish;

@@ -9,7 +9,7 @@ import { loadSkills, resolveSkill } from "../src/skills.js";
 
 const context = { team: "T1", user: "U1", channel: "C1", profile: "scholar", thread: "1.1" };
 
-test("memory scopes exclude other users, profiles and channels", () => {
+test("memory isolation", () => {
     const data = {};
     for (const scope of ["shared", "profile", "channel"]) {
         addEntry(data, context, { kind: "memory", scope, text: `Preference ${scope}` });
@@ -20,7 +20,7 @@ test("memory scopes exclude other users, profiles and channels", () => {
     assert.equal(visibleEntries(data, { ...context, channel: "C2" }).length, 2);
 });
 
-test("notes are searchable with provenance and can be forgotten only within their scope", () => {
+test("note management", () => {
     const data = {};
     const id = addEntry(data, context, {
         kind: "note", scope: "profile", title: "Attention", text: "Sparse attention research notes",
@@ -32,7 +32,7 @@ test("notes are searchable with provenance and can be forgotten only within thei
     assert.equal(searchEntries(data, context, "sparse").length, 0);
 });
 
-test("persistent state serializes concurrent writes and survives restart", async (t) => {
+test("state persistence", async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agent-state-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const file = path.join(root, "state.json");
@@ -43,7 +43,7 @@ test("persistent state serializes concurrent writes and survives restart", async
     assert.equal(restored.snapshot().count, 10);
 });
 
-test("skills are available only to assigned profiles", async () => {
+test("skill permissions", async () => {
     const skills = await loadSkills(new URL("../config/skills.json", import.meta.url));
     assert.ok(resolveSkill(skills, { skills: ["paper-review"] }, "paper-review").includes("source"));
     assert.throws(() => resolveSkill(skills, { skills: ["paper-review"] }, "code-review"));

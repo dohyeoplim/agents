@@ -31,7 +31,7 @@ async function fixture(t, run) {
     });
 }
 
-test("worker applies specialist policy, skill and context without changing the channel directory", async (t) => {
+test("worker context", async (t) => {
     let options;
     const request = await fixture(t, async (input) => {
         options = input;
@@ -48,7 +48,7 @@ test("worker applies specialist policy, skill and context without changing the c
     assert.ok(options.prompt.includes("limitations"));
 });
 
-test("worker rejects unregistered channels and disallowed skills before execution", async (t) => {
+test("worker authorization", async (t) => {
     let called = false;
     const request = await fixture(t, async () => { called = true; });
     assert.equal((await request("/run", { channel: "C2", prompt: "hi" })).status, 400);
@@ -56,7 +56,7 @@ test("worker rejects unregistered channels and disallowed skills before executio
     assert.equal(called, false);
 });
 
-test("worker cancellation aborts the running Codex process", async (t) => {
+test("worker cancellation", async (t) => {
     let ready;
     const started = new Promise((resolve) => { ready = resolve; });
     const request = await fixture(t, async ({ signal }) => {

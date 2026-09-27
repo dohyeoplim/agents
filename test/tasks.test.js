@@ -21,7 +21,7 @@ async function fixture(t, execute = async () => result) {
     return { store, runtime, delivered };
 }
 
-test("completed tasks persist their session and answer before delivery", async (t) => {
+test("task persistence", async (t) => {
     const { store, runtime, delivered } = await fixture(t);
     const id = await runtime.enqueue(input);
     await runtime.idle();
@@ -31,7 +31,7 @@ test("completed tasks persist their session and answer before delivery", async (
     assert.equal(delivered[0].answer, result.answer);
 });
 
-test("stop cancels running work while other commands remain available", async (t) => {
+test("task cancellation", async (t) => {
     let started;
     const ready = new Promise((resolve) => { started = resolve; });
     const { store, runtime } = await fixture(t, async (task, signal) => {
@@ -46,7 +46,7 @@ test("stop cancels running work while other commands remain available", async (t
     assert.equal(store.snapshot().tasks[id].status, "cancelled");
 });
 
-test("restart interrupts running tasks without executing them again", async (t) => {
+test("task recovery", async (t) => {
     let executions = 0;
     const { store, runtime } = await fixture(t, async () => {
         executions++;
@@ -67,7 +67,7 @@ test("restart interrupts running tasks without executing them again", async (t) 
     assert.equal(executions, 1);
 });
 
-test("uncertain Slack delivery is retried without rerunning the task", async (t) => {
+test("answer redelivery", async (t) => {
     let executions = 0;
     const { store, runtime } = await fixture(t, async () => {
         executions++;
@@ -84,21 +84,21 @@ test("uncertain Slack delivery is retried without rerunning the task", async (t)
     assert.equal(store.snapshot().tasks[id].delivery, "delivered");
 });
 
-test("specialist sessions do not overwrite the original conversation", () => {
+test("specialist sessions", () => {
     const data = { threads: { [input.key]: { session: "old", sessions: { scholar: "specialist" } } } };
     assert.equal(sessionFor(data, input), "old");
     assert.equal(sessionFor(data, { ...input, profile: "scholar", delegated: true }), "specialist");
     assert.equal(sessionFor(data, { ...input, profile: "engineer", delegated: true }), undefined);
 });
 
-test("user memories are not carried into another user's Codex session", () => {
+test("user session isolation", () => {
     const data = { threads: { [input.key]: { owner: "U1", session: "private", sessions: {} } } };
     assert.equal(sessionFor(data, input), "private");
     assert.equal(sessionFor(data, { ...input, user: "U2" }), undefined);
     assert.equal(sessionFor(data, { ...input, scheduleId: "S1" }), undefined);
 });
 
-test("unchanged scheduled answers are suppressed after the first delivery", async (t) => {
+test("unchanged answers", async (t) => {
     const { store, runtime, delivered } = await fixture(t);
     await store.update((data) => { data.schedules = { S1: { onChange: true } }; });
     await runtime.enqueue({ ...input, scheduleId: "S1" });

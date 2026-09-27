@@ -32,7 +32,7 @@ const event = {
     text: "<@BOT> hello",
 };
 
-test("authorized mentions and active thread replies only", () => {
+test("message routing", () => {
     const select = (e, team = "T1", known = () => false) =>
         routeEvent(config, { team_id: team }, e, "BOT", known);
     assert.equal(select(event).prompt, "hello");
@@ -58,7 +58,7 @@ test("authorized mentions and active thread replies only", () => {
     );
 });
 
-test("path and symlink escape rejected", async (t) => {
+test("path confinement", async (t) => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "bridge-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
     await mkdir(path.join(dir, "root"));
@@ -80,7 +80,7 @@ test("path and symlink escape rejected", async (t) => {
     );
 });
 
-test("persistent session map survives restart", async (t) => {
+test("session persistence", async (t) => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "store-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
     const store = new Store(path.join(dir, "state.json"));
@@ -92,7 +92,7 @@ test("persistent session map survives restart", async (t) => {
     assert.equal(next.data.threads.a.session, "abc");
 });
 
-test("queue serializes and recovers after rejection", async () => {
+test("queue recovery", async () => {
     const q = new SerialQueue();
     const order = [];
     const a = q.run(async () => {
@@ -106,7 +106,7 @@ test("queue serializes and recovers after rejection", async () => {
     assert.deepEqual(order, [1, 2]);
 });
 
-test("arguments preserve sandbox for resume without shell interpolation", () => {
+test("sandbox arguments", () => {
     const args = codexArgs("12345678-1234-1234-1234-123456789abc");
     assert.deepEqual(args.slice(-3), [
         "resume",
@@ -117,7 +117,7 @@ test("arguments preserve sandbox for resume without shell interpolation", () => 
     assert.ok(!args.includes("--dangerously-bypass-approvals-and-sandbox"));
 });
 
-test("process adapter parses JSONL and rejects failures and timeout", async (t) => {
+test("Codex execution", async (t) => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "cli-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
     const exe = path.join(dir, "fake-codex");
@@ -186,5 +186,5 @@ process.stdin.on("end", () => {
     await assert.rejects(cancelled);
 });
 
-test("chunks preserve Unicode characters", () =>
+test("Unicode chunks", () =>
     assert.equal(chunks("🙂".repeat(6000)).join(""), "🙂".repeat(6000)));
