@@ -47,7 +47,7 @@ test("worker access", async () => {
     await assert.rejects(execute(task, new AbortController().signal), /no longer authorized/);
 });
 
-test("research uses a fresh provider session without normal history, streaming, activity or timeout", async () => {
+test("research execution", async () => {
     const controller = new AbortController();
     let sent;
     const execute = createTaskExecutor({

@@ -22,7 +22,7 @@ async function fixture(t) {
 const source = { title: "Study", url: "https://example.com/paper#section", text: "Evidence",
     coverage: "excerpt", locator: "page 3", claim: "Supports A" };
 
-test("evidence preserves provenance and conflicting versions without storing full text in state", async (t) => {
+test("source provenance", async (t) => {
     const { library, context, state } = await fixture(t);
     const [first, duplicate] = await Promise.all([library.save(source, context), library.save(source, context)]);
     assert.equal(first.id, duplicate.id);
@@ -39,7 +39,7 @@ test("evidence preserves provenance and conflicting versions without storing ful
     assert.notEqual(second.contentHash, first.contentHash);
 });
 
-test("saved source reads enforce job ownership and expose bounded chunks", async (t) => {
+test("source access", async (t) => {
     const { library, context, state } = await fixture(t);
     const saved = await library.save({ ...source, text: "a".repeat(16001) }, context);
     const first = await library.read({ id: saved.id }, context);
@@ -55,7 +55,7 @@ test("saved source reads enforce job ownership and expose bounded chunks", async
     assert.equal(library.search({}, { ...context, researchId: "other" }).total, 0);
 });
 
-test("obsolete and paused workers cannot save evidence or reports", async (t) => {
+test("stale writes", async (t) => {
     const { library, context, state, job } = await fixture(t);
     await assert.rejects(library.save(source, { ...context, researchRunId: "old" }), /no longer active/);
     await state.update((data) => { data.researchJobs.job.status = "paused"; });
@@ -63,7 +63,7 @@ test("obsolete and paused workers cannot save evidence or reports", async (t) =>
     await assert.rejects(library.saveReport(job, "review", "Feedback"), /no longer active/);
 });
 
-test("reports can be discovered and read after completion only within their research", async (t) => {
+test("report access", async (t) => {
     const { library, context, state, job, tools } = await fixture(t);
     const report = await library.saveReport(job, "review", "Feedback");
     assert.equal((await library.saveReport(job, "review", "Feedback")).id, report.id);
@@ -73,7 +73,7 @@ test("reports can be discovered and read after completion only within their rese
     await assert.rejects(library.readReport({ ...job, user: "other" }, report.id), /unavailable/);
 });
 
-test("source tool validates URLs, provenance, size and unavailable task scope", async (t) => {
+test("source validation", async (t) => {
     const { tools, context } = await fixture(t);
     for (const invalid of [{ url: "file:///etc/passwd" }, { url: "https://user:pass@example.com" },
         { coverage: "verified" }, { text: "x".repeat(80001) }]) {
@@ -84,7 +84,7 @@ test("source tool validates URLs, provenance, size and unavailable task scope", 
         /unavailable/);
 });
 
-test("saved sources paginate beyond the first page without dropping records", async (t) => {
+test("source pagination", async (t) => {
     const { library, context } = await fixture(t);
     for (let index = 0; index < 23; index++) {
         await library.save({ ...source, title: "Study " + index }, context);
@@ -99,7 +99,7 @@ test("saved sources paginate beyond the first page without dropping records", as
     assert.equal(new Set([...first.sources, ...second.sources].map((source) => source.id)).size, 23);
 });
 
-test("independent investigation lanes cannot read each other's evidence or reports before synthesis", async (t) => {
+test("provider isolation", async (t) => {
     const { library, context, job, tools } = await fixture(t);
     const codex = { ...context, provider: "codex", researchStage: "explore" };
     const claude = { ...context, provider: "claude", researchStage: "counter" };

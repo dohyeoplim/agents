@@ -120,7 +120,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.equal(Object.keys(second.snapshot().events).length, 12);
     });
 
-    await t.test("version two migrates research records and preserves existing data", async (t) => {
+    await t.test("research migration", async (t) => {
         const { store, query } = await database(t);
         const first = await store().load();
         await first.update((data) => { data.canvasBindings.canvas = { title: "Existing", canvasId: "F1" }; });

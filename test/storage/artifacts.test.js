@@ -63,7 +63,7 @@ test("existing damaged blobs are rejected without being overwritten", async (t) 
     assert.deepEqual(await readdir(join(directory, "blobs", result.hash.slice(0, 2))), [result.hash]);
 });
 
-test("artifact reads verify manifest paths and content hashes for research sources", async (t) => {
+test("artifact integrity", async (t) => {
     const { directory, store } = await fixture(t);
     const saved = await store.put("Evidence", {
         mime: "text/plain", source: { ...source, provider: "research", kind: "source" },

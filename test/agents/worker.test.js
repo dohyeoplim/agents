@@ -53,7 +53,7 @@ test("worker context", async (t) => {
     assert.ok(options.prompt.includes("limitations"));
 });
 
-test("research validates providers and bypasses the normal queue with fresh isolated sessions", async (t) => {
+test("research isolation", async (t) => {
     let release;
     let ready;
     const started = new Promise((resolve) => { ready = resolve; });
@@ -86,7 +86,7 @@ test("research validates providers and bypasses the normal queue with fresh isol
     assert.equal((await normal).status, 200);
 });
 
-test("research cancellation releases capacity and returns a stream error", async (t) => {
+test("research cancellation", async (t) => {
     let started;
     const ready = new Promise((resolve) => { started = resolve; });
     const request = await fixture(t, async ({ signal }) => {

@@ -57,7 +57,7 @@ test("tool authorization", async (t) => {
     assert.equal(forbidden.status, 403);
 });
 
-test("research grants isolate runs, restrict writes and allow more than eighty calls", async (t) => {
+test("research grants", async (t) => {
     const task = { id: "task", team: "T1", user: "U1", channel: "C1", researchId: "job",
         researchRunId: "run", researchStage: "explore" };
     const data = { tasks: { task: { status: "running" } }, researchJobs: {

@@ -67,7 +67,7 @@ test("task recovery", async (t) => {
     assert.equal(executions, 1);
 });
 
-test("research attempts recover without ordinary retries or duplicate delivery", async (t) => {
+test("research recovery", async (t) => {
     const { store, runtime, delivered } = await fixture(t, () => assert.fail("Unexpected ordinary execution"));
     runtime.closed = true;
     const id = await runtime.enqueue(input);

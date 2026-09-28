@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { researchIntent } from "../../src/research/intent.js";
 import { buildResearchPrompt } from "../../src/research/prompts.js";
 
-test("research triggers distinguish explicit investigation from ordinary questions", () => {
+test("research intent", () => {
     for (const text of ["이 주제 딥리서치 해줘", "심층 조사해주세요", "Start deep research on caching",
         "!research caching", "딥리서치 시작해"]) assert.equal(researchIntent(text), "new");
     for (const text of ["딥리서치 뭐야?", "딥리서치 시작하는 트리거는 어떻게?", "검색해줘",
@@ -14,7 +14,7 @@ test("research triggers distinguish explicit investigation from ordinary questio
     }
 });
 
-test("research prompts preserve literal user placeholders and reject unknown stages", () => {
+test("prompt rendering", () => {
     const args = { profile: { instructions: "Profile rules" }, route: {},
         input: { researchStage: "explore", prompt: "Read {{profile}} literally" } };
     const prompt = buildResearchPrompt(args);

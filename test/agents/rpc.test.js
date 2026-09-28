@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startRpc, researchIdleTimeout } from "../../src/agents/rpc.js";
 
-test("RPC supports disabled total timeout and still cancels the process", async () => {
+test("RPC cancellation", async () => {
     const controller = new AbortController();
     const script = `process.stdin.once("data", data => {
         const request = JSON.parse(data.toString());
@@ -17,7 +17,7 @@ test("RPC supports disabled total timeout and still cancels the process", async 
     } finally { rpc.close(); }
 });
 
-test("research idle configuration supports disabling without accepting invalid timers", () => {
+test("idle timeout settings", () => {
     assert.equal(researchIdleTimeout("1200"), 1200000);
     assert.equal(researchIdleTimeout("0"), 0);
     for (const value of ["", "bad", "-1", "0.1", "Infinity", "2147484"]) {
@@ -25,7 +25,7 @@ test("research idle configuration supports disabling without accepting invalid t
     }
 });
 
-test("RPC real events reset the idle watchdog but stderr noise does not", async () => {
+test("RPC activity tracking", async () => {
     const script = `let count = 0;
         const progress = setInterval(() => {
             process.stdout.write(JSON.stringify({ method: "item/progress", params: {} }) + "\\n");

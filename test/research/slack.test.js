@@ -5,7 +5,7 @@ import { researchText } from "../../src/research/copy.js";
 
 const id = "05d1b22a-cf4f-484f-8d22-60a44e9932f7";
 
-test("research copy substitutes values once without interpreting user placeholders", () => {
+test("copy rendering", () => {
     assert.equal(researchText("UI_HEADING", { title: "{{title}}" }), "Deep Research · {{title}}");
     assert.throws(() => researchText("missing"), /Unknown research text key/);
     assert.throws(() => researchText("UI_HEADING"), /Unknown research text placeholder/);
@@ -46,7 +46,7 @@ function fixture(overrides = {}) {
     return { job, data, calls, config, handlers, ui, click };
 }
 
-test("completed research exposes only follow-up and Canvas actions with safe bounded text", () => {
+test("completion actions", () => {
     const { job } = fixture({ status: "completed", title: "<@U1>".repeat(100), brief: "x".repeat(9000) });
     const result = renderResearch(job);
     assert.deepEqual(result.blocks.at(-1).elements.map((button) => button.text.text),
@@ -56,7 +56,7 @@ test("completed research exposes only follow-up and Canvas actions with safe bou
     assert.equal(result.blocks[2].text.text.length, 2900);
 });
 
-test("publish serializes initial delivery and reads latest saved state", async () => {
+test("status publishing", async () => {
     const { job, ui, calls } = fixture({ messageTs: undefined });
     const first = ui.publish(job);
     job.status = "running";
@@ -68,7 +68,7 @@ test("publish serializes initial delivery and reads latest saved state", async (
     assert.match(calls.find(([kind]) => kind === "post")[1].text, /running/);
 });
 
-test("actions acknowledge before control and reject a replay after revision changes", async () => {
+test("action replay", async () => {
     const { click, calls } = fixture();
     await click();
     await click();
@@ -79,7 +79,7 @@ test("actions acknowledge before control and reject a replay after revision chan
     assert.match(calls.at(-1)[1].text, /expired/);
 });
 
-test("actions reject other owners, workspaces, channels, stale message IDs and disabled routes", async () => {
+test("action authorization", async () => {
     for (const body of [
         { user: { id: "U2" } }, { team: { id: "T2" } }, { channel: { id: "C2" } },
         { message: { ts: "103.001" } },
@@ -94,7 +94,7 @@ test("actions reject other owners, workspaces, channels, stale message IDs and d
     assert.equal(calls.some(([kind]) => kind === "control"), false);
 });
 
-test("actions reject invalid values and buttons unavailable in the current state", async () => {
+test("action validation", async () => {
     for (const value of [id, `${id}:NaN`, `${id}:1:2`, `${id}:-1`, `${id}:99999999999999999999`]) {
         const { click, calls } = fixture();
         await click("start", {}, value);
@@ -105,7 +105,7 @@ test("actions reject invalid values and buttons unavailable in the current state
     assert.equal(calls.some(([kind]) => kind === "control"), false);
 });
 
-test("editing opens a bounded modal and authenticates its submission", async () => {
+test("edit modal", async () => {
     const { click, calls, handlers } = fixture();
     await click("edit");
     const modal = calls.find(([kind]) => kind === "open")[1].view;
@@ -124,7 +124,7 @@ test("editing opens a bounded modal and authenticates its submission", async () 
     assert.equal(calls.filter(([kind]) => kind === "control").length, 1);
 });
 
-test("modal submissions reject forged channel metadata and empty answers", async () => {
+test("modal validation", async () => {
     for (const [channel, text] of [["C2", "Scope"], ["C1", "   "]]) {
         const { handlers, calls } = fixture({ status: "awaiting_input" });
         await handlers.view({ ack: async () => {}, body: { team: { id: "T1" }, user: { id: "U1" } },

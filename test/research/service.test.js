@@ -54,7 +54,7 @@ function fixture(run, send) {
     return { service, state, calls, sent, published, current, config, post, job, ready };
 }
 
-test("clarification waits for Start then runs independent providers before synthesis and review", async () => {
+test("research lifecycle", async () => {
     const started = { codex: deferred(), claude: deferred() };
     const release = deferred();
     const f = fixture(async (task) => {
@@ -84,7 +84,7 @@ test("clarification waits for Start then runs independent providers before synth
     assert.match(f.sent.at(-1).text, /synthesize result/);
 });
 
-test("authorization and revision checks reject impersonation and simultaneous duplicate Start", async () => {
+test("start authorization", async () => {
     const f = fixture();
     const initial = await f.ready();
     await assert.rejects(f.service.control(initial.id, "start", undefined,
@@ -96,7 +96,7 @@ test("authorization and revision checks reject impersonation and simultaneous du
     assert.equal(f.calls.filter((task) => task.researchStage === "explore").length, 1);
 });
 
-test("Pause cancels both providers while keeping sources and allows manual Resume", async () => {
+test("pause and resume", async () => {
     const started = { codex: deferred(), claude: deferred() };
     const aborted = [];
     let block = true;
@@ -124,7 +124,7 @@ test("Pause cancels both providers while keeping sources and allows manual Resum
     assert.equal(f.job().status, "completed");
 });
 
-test("ordinary messages in another thread still reach the normal runtime during research", async () => {
+test("concurrent chat", async () => {
     const hold = deferred();
     const started = deferred();
     const f = fixture(async (task) => {
@@ -152,7 +152,7 @@ test("ordinary messages in another thread still reach the normal runtime during 
     await f.service.idle();
 });
 
-test("steering arriving during independent research is included in synthesis", async () => {
+test("research steering", async () => {
     const hold = deferred();
     const started = deferred();
     const f = fixture(async (task) => {
@@ -171,7 +171,7 @@ test("steering arriving during independent research is included in synthesis", a
     assert.deepEqual(JSON.parse(synthesis.prompt).updates, ["Include implementation cost"]);
 });
 
-test("steering during clarification regenerates the scope before offering Start", async () => {
+test("clarification steering", async () => {
     const started = deferred();
     const release = deferred();
     let attempts = 0;
@@ -197,7 +197,7 @@ test("steering during clarification regenerates the scope before offering Start"
     assert.equal(f.published.some((job) => job.status === "ready" && job.brief === plan.brief), false);
 });
 
-test("a provider error cancels its sibling and retains completed stage reports", async () => {
+test("provider failure", async () => {
     const bothStarted = deferred();
     let cancelled = false;
     const f = fixture(async (task, signal) => {
@@ -221,7 +221,7 @@ test("a provider error cancels its sibling and retains completed stage reports",
     assert.ok(f.job().reports.some((report) => report.stage === "clarify"));
 });
 
-test("status publishing keeps bot message identity separate from source and clarification reply messages", async () => {
+test("status message identity", async () => {
     let clarifications = 0;
     const f = fixture(async (task) => {
         if (task.researchStage !== "clarify") return;
@@ -253,7 +253,7 @@ test("status publishing keeps bot message identity separate from source and clar
     assert.ok(messages.filter((item) => item.method === "update").every((item) => item.ts === "101.001"));
 });
 
-test("a failed old report delivery cannot attach an error to a new follow-up scope", async () => {
+test("stale delivery", async () => {
     const delivering = deferred();
     const release = deferred();
     const f = fixture(undefined, async (job) => {

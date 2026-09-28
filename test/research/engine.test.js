@@ -30,7 +30,7 @@ async function fixture(t, execute) {
 const ready = JSON.stringify({ verdict: "ready", feedback: [], gaps: [] });
 const signal = () => new AbortController().signal;
 
-test("research outputs reject inconsistent plans and malformed review JSON", () => {
+test("output validation", () => {
     assert.equal(researchOutput('```json\n{"verdict":"ready","feedback":[],"gaps":[]}\n```', "review")
         .verdict, "ready");
     const plan = { ready: true, title: "Plan", brief: "Scope", questions: [] };
@@ -43,7 +43,7 @@ test("research outputs reject inconsistent plans and malformed review JSON", () 
     assert.throws(() => researchOutput('{"verdict":"complete"}', "review"), /Invalid review/);
 });
 
-test("independent providers see only their prior reports and synthesis receives both finished reports", async (t) => {
+test("independent reports", async (t) => {
     let release;
     const started = new Set();
     const barrier = new Promise((resolve) => { release = resolve; });
@@ -71,7 +71,7 @@ test("independent providers see only their prior reports and synthesis receives 
     assert.equal(posts.length, 1);
 });
 
-test("a failed lane retains successful evidence but never publishes a completed report", async (t) => {
+test("partial failure", async (t) => {
     const { engine, job, state, calls, posts } = await fixture(t, async (task) => {
         if (task.researchStage === "counter") throw Error("Provider offline");
         return "Saved Codex research";
@@ -85,14 +85,14 @@ test("a failed lane retains successful evidence but never publishes a completed 
     assert.equal(posts.length, 0);
 });
 
-test("malformed clarification cannot mark scope ready", async (t) => {
+test("invalid clarification", async (t) => {
     const { engine, job, state } = await fixture(t, async () => "I think it is ready");
     await state.update((data) => { data.researchJobs.job.status = "clarifying"; });
     await assert.rejects(engine.clarify(job, signal()), /Invalid clarify/);
     assert.notEqual(state.snapshot().researchJobs.job.status, "ready");
 });
 
-test("research stops further investigation when review gaps change without new evidence", async (t) => {
+test("evidence exhaustion", async (t) => {
     const { engine, job, calls, state } = await fixture(t, async (task, { calls }) => {
         if (calls.filter((call) => call.researchStage === "explore").length > 1) {
             throw Error("Repeated investigation without new evidence");
@@ -106,7 +106,7 @@ test("research stops further investigation when review gaps change without new e
     assert.equal(state.snapshot().researchJobs.job.status, "completed");
 });
 
-test("rewording claims about identical source content does not count as investigation progress", async (t) => {
+test("duplicate evidence", async (t) => {
     let pass = 0;
     const { engine, job, state } = await fixture(t, async (task, { library }) => {
         if (task.researchStage === "explore") {
@@ -125,7 +125,7 @@ test("rewording claims about identical source content does not count as investig
     assert.equal(state.snapshot().researchJobs.job.status, "completed");
 });
 
-test("Canvas export references the complete saved final report after Slack truncation", async (t) => {
+test("Canvas export", async (t) => {
     const full = "Long findings\n".repeat(2500);
     const { engine, job, library, state, posts, calls } = await fixture(t, async (task) =>
         task.researchStage === "review" ? ready : task.researchStage === "canvas" ? "Saved canvas" : full);
@@ -145,7 +145,7 @@ test("Canvas export references the complete saved final report after Slack trunc
     assert.equal(JSON.parse(calls.at(-1).prompt).finalReportId, completed.finalReportId);
 });
 
-test("old run results cannot append reports after a replacement run starts", async (t) => {
+test("stale results", async (t) => {
     const { engine, job, state } = await fixture(t, async (task, { state }) => {
         if (task.researchStage === "explore") {
             await state.update((data) => { data.researchJobs.job.runId = "replacement"; });

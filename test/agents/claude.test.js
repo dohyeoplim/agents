@@ -12,7 +12,7 @@ function processStub() {
     return child;
 }
 
-test("Claude permits search and explicit research tools without embedding bearer credentials", () => {
+test("Claude tool access", () => {
     const args = claudeArguments("secret-token");
     assert.ok(args.includes("--restricted"));
     assert.ok(args.includes("dontAsk"));
@@ -25,7 +25,7 @@ test("Claude permits search and explicit research tools without embedding bearer
     assert.equal(config.mcpServers.personal.headers.Authorization, "Bearer ${PERSONAL_TOOLS_TOKEN}");
 });
 
-test("Claude distinguishes provider inactivity from total duration", async () => {
+test("Claude idle timeout", async () => {
     const child = processStub();
     const promise = runClaude({ cwd: "/tmp", prompt: "Research", idleTimeout: 20,
         spawnProcess: () => child });
@@ -40,7 +40,7 @@ test("Claude distinguishes provider inactivity from total duration", async () =>
     } finally { clearInterval(timer); }
 });
 
-test("Claude parses final JSON and suppresses intermediate output", async () => {
+test("Claude output", async () => {
     const child = processStub();
     const promise = runClaude({ cwd: "/tmp", prompt: "Investigate", toolToken: "token",
         spawnProcess: (command, args, options) => {
@@ -57,7 +57,7 @@ test("Claude parses final JSON and suppresses intermediate output", async () => 
     assert.equal((await promise).answer, "Evidence");
 });
 
-test("Claude rejects errors and cancellation without exposing provider output", async () => {
+test("Claude failure handling", async () => {
     for (const cancel of [true, false]) {
         const child = processStub();
         const controller = new AbortController();
