@@ -7,7 +7,7 @@
 ### Features
 
 - Persistent conversations, memory, scheduled tasks, and daily briefings.
-- Slack message search, Canvas editing, and Notion document workflows.
+- Slack message search, Canvas editing, and universal document workflows.
 
 #### Integrations
 
@@ -16,7 +16,7 @@
 - Notion MCP
 - Google Calendar API
 - Apple WeatherKit
-- arXiv search and paper notes
+- arXiv
 
 ### Usage
 
@@ -61,3 +61,4 @@ docker compose build --pull --no-cache
 ```sh
 docker compose up -d --build
 ```
+
