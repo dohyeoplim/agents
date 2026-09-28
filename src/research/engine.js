@@ -62,9 +62,9 @@ export function createResearchEngine({ state, execute, library, publish, post, n
             return Object.assign(data.tasks[taskId], { status: "running", startedAt: Date.now(),
                 researchId: id, researchRunId: runId, researchStage, provider });
         });
-        await publish(get(id));
         let result;
         try {
+            await publish(get(id));
             result = await execute(task, signal);
             signal.throwIfAborted();
             const report = await library.saveReport({ ...get(id), runId }, researchStage, result.answer, { provider });
@@ -99,12 +99,12 @@ export function createResearchEngine({ state, execute, library, publish, post, n
         }
     }
 
-    async function investigate(job, signal, extra) {
+    async function investigate(job, signal, extra, executeStage) {
         await update(job.id, job.runId, { stage: researchText("STAGE_RESEARCH") });
         const sibling = new AbortController();
         const combined = AbortSignal.any([signal, sibling.signal]);
         let failure;
-        const run = (name, provider) => stage(job.id, job.runId, name, provider, combined, extra).catch((error) => {
+        const run = (name, provider) => executeStage(name, provider, combined, extra).catch((error) => {
             failure ??= error;
             sibling.abort();
             throw error;
@@ -117,34 +117,70 @@ export function createResearchEngine({ state, execute, library, publish, post, n
 
     async function run(job, signal) {
         const { id, runId } = job;
-        let previousGaps;
-        let gaps = [];
-        let feedback = [];
+        const sourceCount = () => new Set(Object.values(state.snapshot().researchSources || {})
+            .filter((source) => source.researchId === id)
+            .map((source) => source.url + ":" + (source.contentHash || source.artifactId))).size;
+        async function saveCheckpoint(change) {
+            return state.update((data) => {
+                signal.throwIfAborted();
+                const current = data.researchJobs[id];
+                if (current.runId !== runId || current.status !== "running") {
+                    throw Error(researchText("RESEARCH_STOPPED"));
+                }
+                change(current);
+                return current.checkpoint;
+            });
+        }
+        async function executeStage(name, provider, stageSignal, extra) {
+            stageSignal.throwIfAborted();
+            const reportId = get(id).checkpoint.reports[name];
+            if (reportId) {
+                let result;
+                let offset = 0;
+                let text = "";
+                do {
+                    stageSignal.throwIfAborted();
+                    result = await library.readReport(get(id), reportId, offset);
+                    text += result.text;
+                    offset = result.nextOffset;
+                } while (offset !== null);
+                return { ...result, id: reportId, text };
+            }
+            const result = await stage(id, runId, name, provider, stageSignal, extra);
+            if (name === "review") researchOutput(result.text, "review");
+            await saveCheckpoint((current) => { current.checkpoint.reports[name] = result.id; });
+            return result;
+        }
         while (true) {
-            const sourceCount = () => new Set(Object.values(state.snapshot().researchSources || {})
-                .filter((source) => source.researchId === id)
-                .map((source) => source.url + ":" + (source.contentHash || source.artifactId))).size;
-            const before = sourceCount();
-            if (!get(id).finishRequested) await investigate(job, signal, { gaps, feedback });
-            const gainedEvidence = sourceCount() > before;
+            const checkpoint = await saveCheckpoint((current) => {
+                if (current.checkpoint?.version !== (current.scopeVersion || 0)) {
+                    current.checkpoint = { version: current.scopeVersion || 0, reports: {},
+                        gaps: [], feedback: [], sourcesBefore: sourceCount() };
+                }
+            });
+            if (!get(id).finishRequested) {
+                await investigate(job, signal, { gaps: checkpoint.gaps, feedback: checkpoint.feedback }, executeStage);
+            }
+            const gainedEvidence = sourceCount() > checkpoint.sourcesBefore;
             await update(id, runId, { stage: researchText("STAGE_SYNTHESIS") });
             const version = get(id).scopeVersion || 0;
-            const draft = await stage(id, runId, "synthesize", "codex", signal);
+            const draft = await executeStage("synthesize", "codex", signal);
             await update(id, runId, { stage: researchText("STAGE_REVIEW"), draftReportId: draft.id });
-            const critique = await stage(id, runId, "review", "claude", signal, { draftReportId: draft.id });
+            const critique = await executeStage("review", "claude", signal, { draftReportId: draft.id });
             const assessment = researchOutput(critique.text, "review");
             const fingerprint = JSON.stringify(assessment.gaps.map((gap) => gap.toLowerCase().trim()).sort());
             if (assessment.verdict === "needs_research" && assessment.gaps.length &&
-                !get(id).finishRequested && gainedEvidence && fingerprint !== previousGaps) {
-                previousGaps = fingerprint;
-                gaps = assessment.gaps;
-                feedback = assessment.feedback;
+                !get(id).finishRequested && gainedEvidence && fingerprint !== checkpoint.previousGaps) {
+                await saveCheckpoint((current) => {
+                    current.checkpoint = { version, reports: {}, sourcesBefore: sourceCount(),
+                        previousGaps: fingerprint, gaps: assessment.gaps, feedback: assessment.feedback };
+                });
                 continue;
             }
             let final = draft;
             if (assessment.verdict !== "ready" || assessment.feedback.length) {
                 await update(id, runId, { stage: researchText("STAGE_REVISION") });
-                final = await stage(id, runId, "revise", "codex", signal, {
+                final = await executeStage("revise", "codex", signal, {
                     draftReportId: draft.id, reviewReportId: critique.id, assessment,
                     finishWithAvailableEvidence: true,
                 });

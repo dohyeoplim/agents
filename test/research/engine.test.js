@@ -30,6 +30,13 @@ async function fixture(t, execute) {
 const ready = JSON.stringify({ verdict: "ready", feedback: [], gaps: [] });
 const signal = () => new AbortController().signal;
 
+async function resume(state, overrides = {}) {
+    await state.update((data) => {
+        Object.assign(data.researchJobs.job, { status: "running", runId: "resumed", ...overrides });
+    });
+    return state.snapshot().researchJobs.job;
+}
+
 test("output validation", () => {
     assert.equal(researchOutput('```json\n{"verdict":"ready","feedback":[],"gaps":[]}\n```', "review")
         .verdict, "ready");
@@ -182,4 +189,186 @@ test("parent assignment", async (t) => {
     assert.equal(JSON.parse(calls[0].prompt).reports.length, 12);
     for (const task of calls) assert.equal(JSON.parse(task.prompt).previousRound.finalReportId, final.id);
     assert.equal(state.snapshot().researchJobs.parent.finalReportId, final.id);
+});
+
+test("review resumption", async (t) => {
+    let fail = true;
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "review") {
+            if (fail) throw Error("Review unavailable");
+            return ready;
+        }
+        return task.researchStage + " findings";
+    });
+    await assert.rejects(f.engine.run(f.job, signal()), /Claude review failed/);
+    const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
+    assert.deepEqual(Object.keys(checkpoint.reports).sort(), ["counter", "explore", "synthesize"]);
+    const before = f.calls.length;
+    fail = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.deepEqual(f.calls.slice(before).map((task) => task.researchStage), ["review"]);
+    assert.equal(f.state.snapshot().researchJobs.job.finalReportId, checkpoint.reports.synthesize);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("revision resumption", async (t) => {
+    let fail = true;
+    const critique = JSON.stringify({ verdict: "revise", feedback: ["Clarify limits"], gaps: [] });
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "review") return critique;
+        if (task.researchStage === "revise" && fail) throw Error("Revision unavailable");
+        return task.researchStage + " findings";
+    });
+    await assert.rejects(f.engine.run(f.job, signal()), /Codex revise failed/);
+    const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
+    const before = f.calls.length;
+    fail = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.deepEqual(f.calls.slice(before).map((task) => task.researchStage), ["revise"]);
+    const prompt = JSON.parse(f.calls.at(-1).prompt);
+    assert.equal(prompt.draftReportId, checkpoint.reports.synthesize);
+    assert.equal(prompt.reviewReportId, checkpoint.reports.review);
+    assert.deepEqual(prompt.assessment.feedback, ["Clarify limits"]);
+    assert.equal(f.posts.at(-1).text, "revise findings");
+});
+
+test("scope invalidation", async (t) => {
+    let fail = true;
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "review") {
+            if (fail) throw Error("Review unavailable");
+            return ready;
+        }
+        return "Findings";
+    });
+    await assert.rejects(f.engine.run(f.job, signal()));
+    const original = f.state.snapshot().researchJobs.job.checkpoint.reports.synthesize;
+    const before = f.calls.length;
+    fail = false;
+    await f.engine.run(await resume(f.state, { scopeVersion: 1, brief: "New scope" }), signal());
+    const subsequent = f.calls.slice(before);
+    assert.deepEqual(subsequent.map((task) => task.researchStage), ["explore", "counter", "synthesize", "review"]);
+    assert.ok(subsequent.every((task) => JSON.parse(task.prompt).brief === "New scope"));
+    assert.notEqual(f.state.snapshot().researchJobs.job.finalReportId, original);
+    assert.equal(f.state.snapshot().researchJobs.job.checkpoint.version, 1);
+});
+
+test("malformed review", async (t) => {
+    let malformed = true;
+    const f = await fixture(t, async (task) => task.researchStage === "review" ?
+        malformed ? "Unstructured feedback" : ready : "Findings");
+    await assert.rejects(f.engine.run(f.job, signal()), /Invalid review/);
+    assert.equal(f.state.snapshot().researchJobs.job.checkpoint.reports.review, undefined);
+    const before = f.calls.length;
+    malformed = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.deepEqual(f.calls.slice(before).map((task) => task.researchStage), ["review"]);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("cached pagination", async (t) => {
+    const full = "Detailed findings\n".repeat(1000);
+    let fail = true;
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "review") {
+            if (fail) throw Error("Review unavailable");
+            return ready;
+        }
+        return task.researchStage === "synthesize" ? full : "Evidence";
+    });
+    await assert.rejects(f.engine.run(f.job, signal()));
+    const draftId = f.state.snapshot().researchJobs.job.checkpoint.reports.synthesize;
+    const firstPage = await f.library.readReport(f.state.snapshot().researchJobs.job, draftId);
+    assert.ok(firstPage.nextOffset > 0);
+    assert.ok(firstPage.text.length < full.length);
+    fail = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.equal(f.posts.at(-1).text, full);
+    assert.equal(f.calls.filter((task) => task.researchStage === "synthesize").length, 1);
+});
+
+test("partial resumption", async (t) => {
+    const saved = Promise.withResolvers();
+    let fail = true;
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "counter" && fail) {
+            await saved.promise;
+            throw Error("Counter unavailable");
+        }
+        return task.researchStage === "review" ? ready : "Durable evidence";
+    });
+    const update = f.state.update.bind(f.state);
+    f.state.update = async (change) => {
+        const result = await update(change);
+        if (f.state.snapshot().researchJobs.job.checkpoint?.reports.explore) saved.resolve();
+        return result;
+    };
+    await assert.rejects(f.engine.run(f.job, signal()), /Claude counter failed/);
+    const before = f.calls.length;
+    const explored = f.state.snapshot().researchJobs.job.checkpoint.reports.explore;
+    fail = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.deepEqual(f.calls.slice(before).map((task) => task.researchStage), ["counter", "synthesize", "review"]);
+    assert.equal(f.state.snapshot().researchJobs.job.checkpoint.reports.explore, explored);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("investigation resumption", async (t) => {
+    const saved = Promise.withResolvers();
+    const gaps = ["Missing latency measurement"];
+    const feedback = ["Compare device constraints"];
+    let explorations = 0;
+    let counters = 0;
+    let syntheses = 0;
+    let reviews = 0;
+    const f = await fixture(t, async (task, { library }) => {
+        if (task.researchStage === "explore") {
+            explorations++;
+            await library.save({ title: "Measurement " + explorations,
+                url: "https://example.com/measurement/" + explorations, text: "Evidence " + explorations,
+                coverage: "excerpt", claim: "Measured latency" }, task);
+        }
+        if (task.researchStage === "counter" && ++counters === 2) {
+            await saved.promise;
+            throw Error("Counter unavailable");
+        }
+        if (task.researchStage === "synthesize") return "Synthesis " + ++syntheses;
+        if (task.researchStage === "review") {
+            return ++reviews === 1 ? JSON.stringify({ verdict: "needs_research", gaps, feedback }) : ready;
+        }
+        return "Findings " + explorations;
+    });
+    const update = f.state.update.bind(f.state);
+    f.state.update = async (change) => {
+        const result = await update(change);
+        const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
+        if (checkpoint?.previousGaps && checkpoint.reports.explore) saved.resolve();
+        return result;
+    };
+    await assert.rejects(f.engine.run(f.job, signal()), /Claude counter failed/);
+    const failed = f.state.snapshot().researchJobs.job;
+    const checkpoint = failed.checkpoint;
+    assert.equal(explorations, 2);
+    assert.deepEqual(Object.keys(checkpoint.reports), ["explore"]);
+    assert.deepEqual(checkpoint.gaps, gaps);
+    assert.deepEqual(checkpoint.feedback, feedback);
+    assert.equal(checkpoint.sourcesBefore, 1);
+    assert.equal(checkpoint.previousGaps, JSON.stringify(gaps.map((gap) => gap.toLowerCase())));
+    const firstDraft = failed.reports.find((report) => report.stage === "synthesize");
+    const firstReview = failed.reports.find((report) => report.stage === "review");
+    const before = f.calls.length;
+    await f.engine.run(await resume(f.state), signal());
+    const subsequent = f.calls.slice(before);
+    assert.deepEqual(subsequent.map((task) => task.researchStage), ["counter", "synthesize", "review"]);
+    const prompt = JSON.parse(subsequent[0].prompt);
+    assert.deepEqual(prompt.gaps, gaps);
+    assert.deepEqual(prompt.feedback, feedback);
+    const completed = f.state.snapshot().researchJobs.job;
+    assert.equal(completed.checkpoint.reports.explore, checkpoint.reports.explore);
+    assert.equal(completed.checkpoint.sourcesBefore, checkpoint.sourcesBefore);
+    assert.equal(completed.checkpoint.previousGaps, checkpoint.previousGaps);
+    assert.notEqual(completed.finalReportId, firstDraft.id);
+    assert.notEqual(completed.reviewReportId, firstReview.id);
+    assert.equal(f.posts.at(-1).text, "Synthesis 2");
+    assert.equal((await f.library.readReport(completed, completed.finalReportId)).text, "Synthesis 2");
 });

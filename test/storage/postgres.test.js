@@ -130,7 +130,9 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         const migrated = await store().load();
         assert.equal(migrated.snapshot().canvasBindings.canvas.title, "Existing");
         const job = { team: "T", user: "U", channel: "C", thread: "1.000001", status: "running",
-            runId: "run", createdAt: 1000, reports: [{ id: "report" }] };
+            runId: "run", createdAt: 1000, reports: [{ id: "report" }], finishRequested: true,
+            checkpoint: { version: 2, reports: { synthesize: "report" }, sourcesBefore: 3,
+                gaps: [], feedback: [] } };
         const source = { team: "T", user: "U", channel: "C", researchId: "job", title: "Evidence",
             url: "https://example.com", coverage: "excerpt", artifactId: "artifact", updatedAt: 2000 };
         await migrated.update((data) => {
