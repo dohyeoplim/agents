@@ -34,7 +34,7 @@ export function createToolServer({ tools, state, config, personal, healthy, now 
             let size = 0;
             for await (const part of req) {
                 size += part.length;
-                if (size > 32000) return reject(413);
+                if (size > 256000) return reject(413);
                 parts.push(part);
             }
             const body = JSON.parse(Buffer.concat(parts).toString("utf8"));

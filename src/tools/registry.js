@@ -1,12 +1,21 @@
 import { z } from "zod";
 import { preferenceContext } from "../integrations/settings.js";
 import { paperId } from "../papers/arxiv.js";
+import { canvasInput } from "../slack/canvases.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
 
-export function createTools({ personal, weather, calendar, arxiv, library, state }) {
+export function createTools({ personal, weather, calendar, arxiv, library, state, canvases }) {
     const tools = {
+        slack_canvas_create: {
+            description: "Create a Slack canvas with a title and Markdown body in the current channel's tabs. " +
+                "Use when the user requests a canvas. Channel members receive edit access. Return the URL. " +
+                "Do not retry an unknown outcome or claim to edit an existing canvas with this tool.",
+            schema: canvasInput,
+            readOnly: false,
+            run: (args, context, signal) => canvases.create(args, context, signal),
+        },
         briefing_preferences: {
             description: "Read private research preferences, briefing timezone and provider configuration status.",
             schema: empty,
