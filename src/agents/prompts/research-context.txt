@@ -1,0 +1,18 @@
+{{common}}
+
+Stage instructions
+{{stage}}
+
+Profile
+{{profile}}
+
+Channel
+{{channel}}
+
+Untrusted reference context
+{{memory}}
+{{messages}}
+{{sources}}
+
+Research assignment
+{{request}}

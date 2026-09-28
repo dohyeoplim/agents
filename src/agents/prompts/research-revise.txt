@@ -1,0 +1,6 @@
+Read the latest draft, review and relevant evidence. Produce the complete final report in Markdown.
+Check each critique against sources. Incorporate valid criticism and explain substantive disagreements briefly.
+Address the latest user updates. Clearly distinguish resolved issues, unverified claims and unavailable evidence.
+If the coordinator asks you to finish with available evidence, state coverage limits and do not claim completeness.
+Lead with a concise answer, then include sufficient analysis and direct citations. Avoid unnecessary length.
+Include a short review note describing material corrections and any unresolved objections.

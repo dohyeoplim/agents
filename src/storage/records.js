@@ -34,6 +34,12 @@ export const records = {
     canvasChanges: { table: "canvas_changes", version: 2, fields: [...ownership, field("canvasId", "canvas_id"),
         field("taskId", "execution_id"), field("status", "status"), field("createdAt", "created_at_ms", number)] },
     briefingSeen: { table: "briefing_history", fields: [] },
+    researchJobs: { table: "research_jobs", version: 3, fields: [...ownership, field("thread", "thread_ts"),
+        field("key", "conversation_id"), field("status", "status"), field("title", "title"),
+        field("createdAt", "created_at_ms", number), field("updatedAt", "updated_at_ms", number)] },
+    researchSources: { table: "research_sources", version: 3, fields: [...ownership,
+        field("researchId", "research_id"), field("title", "title"), field("url", "url"),
+        field("updatedAt", "updated_at_ms", number)] },
 };
 
 const object = z.record(z.string(), z.unknown());

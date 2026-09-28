@@ -8,13 +8,18 @@ import { validateImages } from "../resources/images.js";
 import { loadProfiles, resolveProfile } from "./profiles.js";
 import { loadSkills, resolveSkill } from "./skills.js";
 import { buildPrompt } from "./prompt.js";
+import { runClaude } from "./claude.js";
+import { researchStages } from "../research/policy.js";
+
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createWorker({
     config = loadConfig, profiles = loadProfiles, skills = loadSkills, run = runAppServer,
-    workspace = "/workspace", agent = process.env.AGENT_ID,
+    workspace = "/workspace", agent = process.env.AGENT_ID, claude = runClaude,
 } = {}) {
     const queue = new SerialQueue();
     const jobs = new Map();
+    let researchJobs = 0;
     return http.createServer(async (req, res) => {
         const reply = (status, data) => {
             if (res.destroyed) return;
@@ -49,8 +54,19 @@ export function createWorker({
                 return reply(200, { cancelled: Boolean(controller) });
             }
             const route = (await config()).channels[input.channel];
+            const research = input.researchId !== undefined;
+            if ((research && (typeof input.researchId !== "string" || !uuid.test(input.researchId) ||
+                (input.researchRunId !== undefined &&
+                    (typeof input.researchRunId !== "string" || !uuid.test(input.researchRunId))) ||
+                !researchStages.includes(input.researchStage) || input.session !== undefined ||
+                ![undefined, "codex", "claude"].includes(input.provider))) ||
+                (!research && (input.researchStage !== undefined || input.provider !== undefined ||
+                    input.researchRunId !== undefined))) {
+                return reply(400, { error: "Invalid research request" });
+            }
             if (!route || route.enabled === false || route.agent !== agent ||
-                typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 16000 ||
+                typeof input.prompt !== "string" || !input.prompt.trim() ||
+                input.prompt.length > (research ? 64000 : 16000) ||
                 (input.profile !== undefined && typeof input.profile !== "string") ||
                 (input.skill !== undefined && typeof input.skill !== "string") ||
                 (input.notionAccess !== undefined && typeof input.notionAccess !== "boolean") ||
@@ -67,50 +83,68 @@ export function createWorker({
             }
             const id = input.id || randomUUID();
             if (jobs.has(id)) return reply(409, { error: "Task already running" });
+            if (research && researchJobs >= 4) return reply(429, { error: "Research capacity reached" });
+            if (research) researchJobs++;
             const controller = new AbortController();
             jobs.set(id, controller);
             res.on("close", () => {
                 if (!res.writableEnded) controller.abort();
             });
+            let heartbeat;
             try {
-                const result = await queue.run(async () => {
+                const perform = async () => {
                     if (controller.signal.aborted) throw Error("Task cancelled");
                     const current = (await config()).channels[input.channel];
                     if (!current || current.enabled === false || current.agent !== agent) {
                         throw Error("Channel disabled");
                     }
-                    const cwd = await confined(workspace, current.cwd, true);
+                    const channelCwd = await confined(workspace, current.cwd, true);
+                    const cwd = research ? await confined(channelCwd,
+                        `.research/${input.researchId}/${input.researchStage}/${id}`, true) : channelCwd;
                     const profile = resolveProfile(await profiles(), current, input.profile);
                     const skill = resolveSkill(await skills(), profile, input.skill);
-                    if (input.stream === true) {
+                    if (input.stream === true || research) {
                         res.writeHead(200, { "Content-Type": "application/x-ndjson" });
                         res.flushHeaders();
+                        if (research) heartbeat = setInterval(() => {
+                            if (!res.destroyed) res.write(JSON.stringify({ type: "heartbeat" }) + "\n");
+                        }, 15000);
                     }
                     let streamed = "";
-                    return run({
+                    const provider = input.provider === "claude" ? claude : run;
+                    return provider({
                         cwd,
                         session: input.session,
                         model: current.model || profile.model,
                         policy: profile,
-                        timeout: profile.timeoutSeconds * 1000,
+                        timeout: research ? null : profile.timeoutSeconds * 1000,
                         signal: controller.signal,
                         images: input.images || [],
                         toolToken: input.toolToken,
                         notionAccess: input.notionAccess === true,
-                        onText: input.stream === true ? (text) => {
+                        research,
+                        onText: input.stream === true && !research ? (text) => {
                             if (text.startsWith(streamed) && text.length - streamed.length < 128) return;
                             streamed = text;
                             if (!res.destroyed) res.write(JSON.stringify({ type: "text", text }) + "\n");
                         } : undefined,
                         prompt: buildPrompt({ profile, route: current, skill, input }),
                     });
-                });
+                };
+                const result = await (research ? perform() : queue.run(perform));
                 reply(200, result);
             } finally {
+                clearInterval(heartbeat);
+                if (research) researchJobs--;
                 jobs.delete(id);
             }
-        } catch {
-            reply(500, { error: "Worker failed. Check authentication and sandbox support." });
+        } catch (error) {
+            reply(500, { code: error.code === "RESEARCH_STALLED" ? "RESEARCH_STALLED" : undefined,
+                error: error.code === "RESEARCH_STALLED" ?
+                "Research stopped after no provider execution events within the inactivity limit." :
+                error.code === "CLAUDE_FAILED" ?
+                "Claude failed. Check Claude authentication and service availability." :
+                "Worker failed. Check authentication and sandbox support." });
         }
     });
 }

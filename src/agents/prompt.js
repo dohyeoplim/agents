@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { buildResearchPrompt } from "../research/prompts.js";
 
 const [worker, briefing, canvas, history, notion] = await Promise.all(
     ["worker", "briefing", "canvas", "history", "notion"].map((name) =>
@@ -12,6 +13,7 @@ function render(template, values) {
 }
 
 export function buildPrompt({ profile, route, skill, input }) {
+    if (input.researchStage) return buildResearchPrompt({ profile, route, input });
     const values = {
         profile: profile.instructions,
         channel: route.instructions || "",

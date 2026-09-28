@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { researchText } from "../research/copy.js";
 
 const unfinished = ["queued", "running", "cancelling"];
 
@@ -62,6 +63,11 @@ export class TaskRuntime {
         await this.store.update((data) => {
             data.tasks ??= {};
             for (const task of Object.values(data.tasks)) {
+                if (task.researchId) {
+                    if (["running", "cancelling", "queued"].includes(task.status)) task.status = "interrupted";
+                    task.delivery = "suppressed";
+                    continue;
+                }
                 if (["running", "cancelling"].includes(task.status)) {
                     task.status = "interrupted";
                     task.answer = `Task ${task.id.slice(0, 8)} was interrupted. Use !retry ${task.id.slice(0, 8)}.`;
@@ -173,6 +179,7 @@ export class TaskRuntime {
             const selected = selector ? findTask(data, context, selector) : ownedTasks(data, context)
                 .find((task) => task.thread === context.thread && unfinished.includes(task.status));
             if (!selected || !unfinished.includes(selected.status)) throw Error("No active task found");
+            if (selected.researchId) throw Error(researchText("RESEARCH_USE_CONTROLS"));
             if (selected.status === "queued") {
                 selected.status = "cancelled";
                 selected.answer = "Queued task cancelled.";
@@ -187,6 +194,7 @@ export class TaskRuntime {
 
     async retry(context, selector) {
         const task = findTask(this.store.snapshot(), context, selector);
+        if (task.researchId) throw Error(researchText("RESEARCH_USE_CONTROLS"));
         if (!["failed", "interrupted", "cancelled"].includes(task.status)) throw Error("Task cannot be retried");
         return this.enqueue({ ...task, scheduleId: undefined });
     }

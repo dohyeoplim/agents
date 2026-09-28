@@ -24,6 +24,9 @@ import { createCanvases } from "./slack/canvases.js";
 import { createCanvasWorkspace } from "./slack/canvas-workspace.js";
 import { createSlackHistory } from "./slack/history.js";
 import { createHistoryContext } from "./slack/history-context.js";
+import { createResearchLibrary } from "./research/library.js";
+import { createResearch } from "./research/service.js";
+import { createResearchSlack } from "./research/slack.js";
 
 const config = await loadConfig();
 const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
@@ -50,6 +53,7 @@ const post = createMessageSender(app.client);
 const titles = createThreadTitles({ state, token: process.env.SLACK_BOT_TOKEN });
 const files = createArtifactStore({ directory: "/state/artifacts" });
 const artifacts = {
+    get: files.get,
     async put(data, options) {
         const artifact = await files.put(data, options);
         await state.update((draft) => { draft.artifacts[artifact.id] = artifact; });
@@ -60,12 +64,13 @@ const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN, art
 const streams = createSlackStreams({ state, token: process.env.SLACK_BOT_TOKEN, post });
 const arxiv = createArxiv();
 const library = createLibrary({ arxiv, state });
+const researchLibrary = createResearchLibrary({ state, artifacts });
 const canvasOptions = { token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl: identity.url };
 const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: createCanvases(canvasOptions).create });
 const history = createSlackHistory({ token: process.env.SLACK_BOT_TOKEN, workspaceUrl: identity.url });
 const historyContext = createHistoryContext({ state, history });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
-    arxiv, library, state, canvases, history });
+    arxiv, library, state, canvases, history, research: researchLibrary });
 const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,
     healthy: async () => !runtime.closed && !runtime.broken && await state.healthy() });
 const briefingContext = createBriefingContext({ tools, personal: loadPersonal });
@@ -75,7 +80,13 @@ const runtime = new TaskRuntime({
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources, streams,
         toolServer, briefingContext, historyContext }),
 });
-const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources });
+const research = createResearch({ state, library: researchLibrary, config: loadConfig, post,
+    execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources, toolServer, historyContext }),
+});
+const researchSlack = createResearchSlack({ client: app.client, state, config: loadConfig, control: research.control });
+research.attach(researchSlack);
+researchSlack.register(app);
+const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources, research });
 const channels = createAutomaticChannels({ client: app.client, team: config.team, bot: identity.user_id,
     file: process.env.AUTO_CHANNELS_FILE || "/channels/routes.json" });
 
@@ -92,6 +103,7 @@ await new Promise((resolve, reject) => {
     toolServer.server.listen(8081, "0.0.0.0", resolve);
 });
 await app.start();
+await research.recover();
 await channels.sync().catch(() => {});
 const channelTimer = setInterval(() => { channels.sync().catch(() => {}); }, 5 * 60 * 1000);
 channelTimer.unref();
@@ -107,6 +119,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         stopScheduler();
         stopBriefings();
         clearInterval(channelTimer);
+        await research.stop();
         await app.stop();
         await channels.stop();
         await messages.idle();

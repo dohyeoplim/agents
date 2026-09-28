@@ -47,6 +47,32 @@ test("worker access", async () => {
     await assert.rejects(execute(task, new AbortController().signal), /no longer authorized/);
 });
 
+test("research uses a fresh provider session without normal history, streaming, activity or timeout", async () => {
+    const controller = new AbortController();
+    let sent;
+    const execute = createTaskExecutor({
+        state: { snapshot: () => ({ threads: { thread: { session } } }) },
+        personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
+        activity: () => assert.fail("No ordinary activity"),
+        streams: { update: () => assert.fail("No ordinary stream") },
+        historyContext: { hydrate: () => assert.fail("No ordinary conversation history") },
+        request: async (url, options) => {
+            assert.equal(options.signal, controller.signal);
+            sent = JSON.parse(options.body);
+            return { ok: true, json: async () => ({ session, answer: "Research" }) };
+        },
+    });
+    await execute({ ...task, researchId: session, researchRunId: session,
+        researchStage: "counter", provider: "claude" }, controller.signal);
+    assert.equal(sent.session, undefined);
+    assert.equal(sent.researchId, session);
+    assert.equal(sent.researchRunId, session);
+    assert.equal(sent.researchStage, "counter");
+    assert.equal(sent.provider, "claude");
+    assert.equal(sent.stream, true);
+});
+
 test("tool grant lifetime", async () => {
     const events = [];
     const execute = createTaskExecutor({ state: { snapshot: () => ({}) },

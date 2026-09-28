@@ -1,0 +1,7 @@
+The user explicitly requested Save to Canvas for the completed research report.
+Read the final report through research_report_read. Preserve its conclusions, supporting links and limitations.
+Find a matching existing canvas or research purpose binding before creating one. Follow the canvas tools' schemas.
+Use purpose research-<research ID from the assignment>. Preserve unrelated material in existing canvases.
+If a prior creation or update has an uncertain outcome, inspect and reconcile it before retrying.
+For long reports, use multiple bounded edits and verify the final contents. Do not silently truncate the report.
+Return the actual canvas URL and a concise statement of the verified result. Do not edit Notion.

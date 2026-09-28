@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { researchToolAllowed } from "../research/policy.js";
 
 export function createToolServer({ tools, state, config, personal, healthy, now = Date.now }) {
     const grants = new Map();
@@ -29,6 +30,11 @@ export function createToolServer({ tools, state, config, personal, healthy, now 
             if (task.team !== current.team || !current.users.includes(task.user) || !route || route.enabled === false ||
                 task.user !== (settings?.owner || current.users[0]) ||
                 state.snapshot().tasks[task.id]?.status !== "running") return reject(403);
+            if (task.researchId) {
+                const job = state.snapshot().researchJobs?.[task.researchId];
+                if (!job || job.runId !== task.researchRunId || !["running", "clarifying"].includes(job.status) ||
+                    ["team", "user", "channel"].some((key) => job[key] !== task[key])) return reject(403);
+            }
             if (access.until <= now()) access.until = now() + 12 * 60000;
             const parts = [];
             let size = 0;
@@ -39,9 +45,14 @@ export function createToolServer({ tools, state, config, personal, healthy, now 
             }
             const body = JSON.parse(Buffer.concat(parts).toString("utf8"));
             const mcp = new Server({ name: "personal-tools", version: "1.0.0" }, { capabilities: { tools: {} } });
-            mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools.definitions }));
+            mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: tools.definitions.filter((tool) => researchToolAllowed(task, tool.name)),
+            }));
             mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                if (++access.calls > 80 || access.pending >= 3) {
+                if (!researchToolAllowed(task, request.params.name)) {
+                    return { isError: true, content: [{ type: "text", text: "Tool unavailable in this stage" }] };
+                }
+                if ((!task.researchId && ++access.calls > 80) || access.pending >= 3) {
                     return { isError: true, content: [{ type: "text", text: "Tool call limit reached" }] };
                 }
                 access.pending++;

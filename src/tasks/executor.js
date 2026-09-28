@@ -11,6 +11,7 @@ export function createTaskExecutor({
     config = loadConfig, personal = loadPersonal, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
+        const research = Boolean(task.researchId);
         const current = await config();
         const route = current.channels[task.channel];
         if (!route || route.enabled === false || task.team !== current.team || !current.users.includes(task.user)) {
@@ -28,14 +29,15 @@ export function createTaskExecutor({
         };
         signal.addEventListener("abort", abort, { once: true });
         try {
-            const showActivity = task.briefingDate ? async (context, run) => run() : activity;
+            const showActivity = task.briefingDate || research ? async (context, run) => run() : activity;
             return await showActivity({
                 token, channel: task.channel, thread: task.thread,
             }, async () => {
                 if (signal.aborted) throw Error("Task cancelled");
                 const data = state.snapshot();
-                const session = sessionFor(data, task);
-                const history = historyContext ? await historyContext.hydrate(task, session, signal) : { text: "" };
+                const session = research ? undefined : sessionFor(data, task);
+                const history = historyContext && !research ?
+                    await historyContext.hydrate(task, session, signal) : { text: "" };
                 const sources = resources && !task.briefingDate ? await resources.collect(task, signal) :
                     { sources: [], notices: [] };
                 const sourceContext = task.briefingDate ? await briefingContext(task, signal) :
@@ -49,14 +51,19 @@ export function createTaskExecutor({
                         profile: task.profile, skill: task.skill, session,
                         context: knowledgeContext(data, task, task.prompt),
                         sourceContext, historyContext: history.text,
-                        images: sources.images || [], stream: Boolean(streams && !task.scheduleId && !task.briefingDate),
+                        images: sources.images || [],
+                        stream: research || Boolean(streams && !task.scheduleId && !task.briefingDate),
+                        ...(research ? { researchId: task.researchId, researchStage: task.researchStage,
+                            researchRunId: task.researchRunId,
+                            provider: task.provider || "codex" } : {}),
                         toolToken: grant?.token,
                         notionAccess: notionOwner && Boolean(grant?.token),
                     }),
-                    signal: AbortSignal.any([signal, AbortSignal.timeout(620000)]),
+                    signal: research ? signal : AbortSignal.any([signal, AbortSignal.timeout(620000)]),
                 });
                 if (!response.ok) throw Error("Worker failed");
-                const result = await workerResponse(response, (text) => streams?.update(task, text));
+                const result = await workerResponse(response, research ? undefined :
+                    (text) => streams?.update(task, text), { longRunning: research });
                 if (typeof result.answer !== "string" || !/^[0-9a-f-]{36}$/i.test(result.session || "")) {
                     throw Error("Invalid worker response");
                 }

@@ -9,11 +9,11 @@ import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
 import { workerResponse } from "../../src/tasks/response.js";
 
-async function fixture(t, run) {
+async function fixture(t, run, claude) {
     const root = await mkdtemp(path.join(os.tmpdir(), "worker-"));
     await mkdir(path.join(root, "inbox"));
     const worker = createWorker({
-        workspace: root, agent: "assistant", run,
+        workspace: root, agent: "assistant", run, claude,
         config: async () => ({ channels: { C1: { name: "inbox", agent: "assistant", cwd: "inbox" } } }),
         profiles: () => loadProfiles(new URL("../../config/profiles.json", import.meta.url)),
         skills: () => loadSkills(new URL("../../config/skills.json", import.meta.url)),
@@ -51,6 +51,54 @@ test("worker context", async (t) => {
     assert.ok(options.prompt.includes("Canvas reference text"));
     assert.ok(options.prompt.includes("Previous thread reference"));
     assert.ok(options.prompt.includes("limitations"));
+});
+
+test("research validates providers and bypasses the normal queue with fresh isolated sessions", async (t) => {
+    let release;
+    let ready;
+    const started = new Promise((resolve) => { ready = resolve; });
+    const request = await fixture(t, async ({ signal }) => {
+        ready();
+        await new Promise((resolve) => {
+            release = resolve;
+            signal.addEventListener("abort", resolve, { once: true });
+        });
+        return { session: randomUUID(), answer: "Normal" };
+    }, async (options) => {
+        assert.equal(options.timeout, null);
+        assert.equal(options.onText, undefined);
+        assert.equal(options.session, undefined);
+        assert.equal(options.research, true);
+        assert.match(options.cwd, /\/inbox\/\.research\/[\da-f-]+\/counter\/[\da-f-]+$/);
+        return { session: randomUUID(), answer: "Research" };
+    });
+    const research = { channel: "C1", prompt: "Investigate", researchId: randomUUID(),
+        researchRunId: randomUUID(), researchStage: "counter", provider: "claude" };
+    for (const change of [{ researchId: "../escape" }, { researchStage: "bad" }, { provider: "gemini" },
+        { researchRunId: "bad" }, { session: randomUUID() }, { researchId: undefined }]) {
+        assert.equal((await request("/run", { ...research, ...change })).status, 400);
+    }
+    const normal = request("/run", { channel: "C1", prompt: "Normal" });
+    await started;
+    const response = await request("/run", research);
+    assert.equal((await workerResponse(response)).answer, "Research");
+    release();
+    assert.equal((await normal).status, 200);
+});
+
+test("research cancellation releases capacity and returns a stream error", async (t) => {
+    let started;
+    const ready = new Promise((resolve) => { started = resolve; });
+    const request = await fixture(t, async ({ signal }) => {
+        started();
+        await new Promise((resolve, reject) => signal.addEventListener("abort", () => reject(Error("Stopped"))));
+    });
+    const id = randomUUID();
+    const response = await request("/run", { id, channel: "C1", prompt: "Research",
+        researchId: randomUUID(), researchStage: "explore" });
+    await ready;
+    await request("/cancel", { id });
+    await assert.rejects(workerResponse(response), /Worker failed/);
 });
 
 test("worker authorization", async (t) => {

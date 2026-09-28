@@ -19,4 +19,6 @@ test("worker stream", async () => {
     assert.equal(result.answer, "Done");
     await assert.rejects(workerResponse(response([{ type: "text", text: "Partial" }])));
     await assert.rejects(workerResponse(response([{ type: "error" }])));
+    await assert.rejects(workerResponse(response([{ type: "error", code: "RESEARCH_STALLED" }])),
+        { code: "RESEARCH_STALLED" });
 });

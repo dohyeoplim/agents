@@ -35,7 +35,8 @@ export function createMessageSender(client, profiles = loadProfiles) {
 }
 
 export function createMessageHandler({
-    state, runtime, bot, post, titles, resources, config = loadConfig, profiles = loadProfiles, skills = loadSkills,
+    state, runtime, bot, post, titles, resources, research,
+    config = loadConfig, profiles = loadProfiles, skills = loadSkills,
 }) {
     const events = new SerialQueue();
     const contextFor = (item) => ({
@@ -88,6 +89,19 @@ export function createMessageHandler({
             return;
         }
         const context = contextFor(item);
+        if (research && (!parseCommand(item.prompt) || /^!research(?:\s|$)|^!stop\s*$/i.test(item.prompt))) {
+            try {
+                if (await research.handle(context, item.prompt, id)) {
+                    await state.update((data) => {
+                        Object.assign(data.inbox[id], { status: "processed", completedAt: Date.now() });
+                    });
+                    return;
+                }
+            } catch (error) {
+                await finish(id, error.message, "failed");
+                return;
+            }
+        }
         let availableProfiles;
         let availableSkills;
         let command;

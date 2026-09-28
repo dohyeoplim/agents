@@ -65,11 +65,14 @@ services:
       AGENT_ID: assistant
       AUTO_CHANNELS_FILE: /channels/routes.json
       CODEX_HOME: /codex
+      CLAUDE_CONFIG_DIR: /claude
+      RESEARCH_IDLE_TIMEOUT_SECONDS: ${RESEARCH_IDLE_TIMEOUT_SECONDS:-1200}
     volumes:
       - ./config/routes.json:/config/routes.json:ro
       - ./config/profiles.json:/config/profiles.json:ro
       - ./config/skills.json:/config/skills.json:ro
       - ./data/assistant/codex:/codex
+      - claude:/claude
       - ./data/assistant/workspace:/workspace
       - channels:/channels:ro
     networks: [bridge, internet]
@@ -99,3 +102,4 @@ networks:
 volumes:
   database:
   channels:
+  claude:

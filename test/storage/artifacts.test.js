@@ -62,3 +62,17 @@ test("existing damaged blobs are rejected without being overwritten", async (t) 
     assert.equal(await readFile(join(directory, result.path), "utf8"), "damage");
     assert.deepEqual(await readdir(join(directory, "blobs", result.hash.slice(0, 2))), [result.hash]);
 });
+
+test("artifact reads verify manifest paths and content hashes for research sources", async (t) => {
+    const { directory, store } = await fixture(t);
+    const saved = await store.put("Evidence", {
+        mime: "text/plain", source: { ...source, provider: "research", kind: "source" },
+    });
+    assert.equal((await store.get(saved.id)).data.toString(), "Evidence");
+    await assert.rejects(store.get("../../outside"), /Invalid artifact ID/);
+    await writeFile(join(directory, saved.path), "Modified");
+    await assert.rejects(store.get(saved.id), /integrity check/);
+    await writeFile(join(directory, "manifests", saved.id + ".json"),
+        JSON.stringify({ ...saved, path: "../../outside" }));
+    await assert.rejects(store.get(saved.id), /integrity check/);
+});

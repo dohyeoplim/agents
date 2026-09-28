@@ -4,7 +4,7 @@ import pg from "pg";
 import { records, encodeRecord, decodeRecord, validateState } from "./records.js";
 
 const lockId = 714238905;
-const schemaVersion = 2;
+const schemaVersion = 3;
 
 export class PostgresState {
     constructor({ initial = {}, legacyFile, connection = {} } = {}) {

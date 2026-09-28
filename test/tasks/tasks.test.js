@@ -67,6 +67,22 @@ test("task recovery", async (t) => {
     assert.equal(executions, 1);
 });
 
+test("research attempts recover without ordinary retries or duplicate delivery", async (t) => {
+    const { store, runtime, delivered } = await fixture(t, () => assert.fail("Unexpected ordinary execution"));
+    runtime.closed = true;
+    const id = await runtime.enqueue(input);
+    await store.update((data) => Object.assign(data.tasks[id], { status: "running", researchId: "research" }));
+    await assert.rejects(runtime.cancel(context, id), /research status message/);
+    await runtime.recover();
+    assert.equal(store.snapshot().tasks[id].status, "interrupted");
+    assert.equal(store.snapshot().tasks[id].delivery, "suppressed");
+    await assert.rejects(runtime.retry(context, id), /research status message/);
+    runtime.closed = false;
+    runtime.wake();
+    await runtime.idle();
+    assert.equal(delivered.length, 0);
+});
+
 test("answer redelivery", async (t) => {
     let executions = 0;
     const { store, runtime } = await fixture(t, async () => {

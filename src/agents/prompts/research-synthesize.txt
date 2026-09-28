@@ -1,0 +1,7 @@
+Read the supplied stage reports and the shared evidence needed to evaluate their claims.
+Write a coherent report answering the confirmed brief and latest user updates.
+Resolve duplicates by original source, compare conflicting evidence and identify differences in conditions.
+Do not infer truth from agreement between models. Important factual claims must have supporting source links.
+Lead with a concise answer, followed by the analysis the question needs and explicit limitations.
+Do not silently omit new user constraints, failed retrievals, unresolved contradictions or requested comparisons.
+This is a draft for independent review. Return the complete report in Markdown.

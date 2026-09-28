@@ -1,4 +1,4 @@
-import { startRpc } from "./rpc.js";
+import { startRpc, researchIdleTimeout } from "./rpc.js";
 import { runtimeHome } from "./home.js";
 import { notionConfig, notionEnabled, oauthConfig } from "../integrations/notion.js";
 
@@ -19,6 +19,7 @@ export function threadOptions(cwd, model, policy = {}) {
 export async function runAppServer({
     cwd, prompt, session, model, policy = {}, images = [], onText = () => {}, signal,
     timeout = 600000, executable = "codex", home = process.env.CODEX_HOME || "/codex", toolToken, notionAccess = false,
+    research = false,
 }) {
     if (signal?.aborted) throw Error("Task cancelled");
     const codexHome = await runtimeHome(home);
@@ -32,6 +33,7 @@ export async function runAppServer({
     completed.catch(() => {});
     const rpc = startRpc({
         executable, args: [...oauthConfig, "app-server", "--stdio"], cwd: "/tmp", timeout, signal,
+        idleTimeout: research ? researchIdleTimeout() : 0,
         env: { PATH: process.env.PATH, HOME: "/home/node", LANG: "C.UTF-8", CODEX_HOME: codexHome,
             ...(toolToken ? { PERSONAL_TOOLS_TOKEN: toolToken } : {}) },
         notify: ({ method, params }) => {
@@ -64,6 +66,9 @@ export async function runAppServer({
             rpc.notify("initialized", {});
             const options = threadOptions(cwd, model, policy);
             options.config["mcp_servers.notion"] = notionConfig(notion);
+            if (research) options.config["mcp_servers.notion"].enabled_tools = [
+                "notion-search", "notion-ai-search", "notion-get-tool-access", "notion-fetch",
+            ];
             options.config.mcp_oauth_credentials_store = "file";
             if (notion) options.config.mcp_optional_startup_grace_ms = 0;
             options.config["mcp_servers.personal"] = toolToken ? {

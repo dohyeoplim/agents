@@ -26,8 +26,8 @@ async function publish(path, data) {
 }
 
 function normalizeSource(source) {
-    if (!source || source.provider !== "slack") throw Error("Invalid artifact source");
-    const result = { provider: "slack" };
+    if (!source || !["slack", "research"].includes(source.provider)) throw Error("Invalid artifact source");
+    const result = { provider: source.provider };
     for (const field of ["channel", "fileId", "version", "kind"]) {
         const value = source[field];
         if (typeof value !== "string" || !value.length || value.length > 1024 || /[\x00-\x1f]/.test(value)) {
@@ -71,5 +71,23 @@ export function createArtifactStore({ directory }) {
         return result;
     }
 
-    return { put };
+    async function get(id) {
+        if (typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)) throw Error("Invalid artifact ID");
+        const manifest = JSON.parse(await readFile(join(root, "manifests", id + ".json"), "utf8"));
+        const { hash, path, mime, size, source } = manifest;
+        if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash) ||
+            path !== join("blobs", hash.slice(0, 2), hash) || !Number.isSafeInteger(size) || size < 0 ||
+            typeof mime !== "string" || !/^[a-z\d][\w.+-]*\/[a-z\d][\w.+-]*$/i.test(mime)) {
+            throw Error("Artifact integrity check failed");
+        }
+        const metadata = { hash, path, mime, size, source: normalizeSource(source) };
+        if (manifest.id !== id || digest(JSON.stringify(metadata)) !== id) {
+            throw Error("Artifact integrity check failed");
+        }
+        const data = await readFile(join(root, path));
+        if (data.length !== size || digest(data) !== hash) throw Error("Artifact integrity check failed");
+        return { id, ...metadata, data };
+    }
+
+    return { put, get };
 }

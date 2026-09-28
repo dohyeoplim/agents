@@ -56,3 +56,39 @@ test("tool authorization", async (t) => {
     const forbidden = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + other.token } });
     assert.equal(forbidden.status, 403);
 });
+
+test("research grants isolate runs, restrict writes and allow more than eighty calls", async (t) => {
+    const task = { id: "task", team: "T1", user: "U1", channel: "C1", researchId: "job",
+        researchRunId: "run", researchStage: "explore" };
+    const data = { tasks: { task: { status: "running" } }, researchJobs: {
+        job: { team: "T1", user: "U1", channel: "C1", runId: "run", status: "running" },
+    } };
+    let calls = 0;
+    const bridge = createToolServer({ state: { snapshot: () => data }, personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: {} } }),
+        tools: { definitions: ["research_source_save", "slack_canvas_create"].map((name) =>
+            ({ name, description: name, inputSchema: { type: "object" } })),
+        call: async () => ({ calls: ++calls }) },
+    });
+    await new Promise((resolve) => bridge.server.listen(0, "127.0.0.1", resolve));
+    t.after(async () => {
+        bridge.server.closeAllConnections();
+        await new Promise((resolve) => bridge.server.close(resolve));
+    });
+    const url = new URL(`http://127.0.0.1:${bridge.server.address().port}/mcp`);
+    const grant = bridge.grant(task);
+    const client = new Client({ name: "test", version: "1" });
+    t.after(() => client.close());
+    await client.connect(new StreamableHTTPClientTransport(url, {
+        requestInit: { headers: { Authorization: "Bearer " + grant.token } },
+    }));
+    assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name), ["research_source_save"]);
+    assert.equal((await client.callTool({ name: "slack_canvas_create", arguments: {} })).isError, true);
+    assert.equal(calls, 0);
+    for (let index = 0; index < 85; index++) {
+        assert.notEqual((await client.callTool({ name: "research_source_save", arguments: {} })).isError, true);
+    }
+    assert.equal(calls, 85);
+    data.researchJobs.job.runId = "replacement";
+    await assert.rejects(client.listTools());
+});
