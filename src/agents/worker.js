@@ -17,7 +17,7 @@ export function createWorker({
     config = loadConfig, profiles = loadProfiles, skills = loadSkills, run = runAppServer,
     workspace = "/workspace", agent = process.env.AGENT_ID, claude = runClaude,
 } = {}) {
-    const queue = new SerialQueue();
+    const sessions = new Map();
     const jobs = new Map();
     let researchJobs = 0;
     return http.createServer(async (req, res) => {
@@ -84,6 +84,7 @@ export function createWorker({
             const id = input.id || randomUUID();
             if (jobs.has(id)) return reply(409, { error: "Task already running" });
             if (research && researchJobs >= 4) return reply(429, { error: "Research capacity reached" });
+            if (!research && jobs.size - researchJobs >= 32) return reply(429, { error: "Task capacity reached" });
             if (research) researchJobs++;
             const controller = new AbortController();
             jobs.set(id, controller);
@@ -131,12 +132,23 @@ export function createWorker({
                         prompt: buildPrompt({ profile, route: current, skill, input }),
                     });
                 };
-                const result = await (research ? perform() : queue.run(perform));
+                const session = !research && input.session;
+                let queue;
+                if (session) {
+                    queue = sessions.get(session) || new SerialQueue();
+                    sessions.set(session, queue);
+                }
+                const result = await (queue ? queue.run(perform) : perform());
                 reply(200, result);
             } finally {
                 clearInterval(heartbeat);
                 if (research) researchJobs--;
                 jobs.delete(id);
+                for (const [session, queue] of sessions) {
+                    void queue.tail.then(() => {
+                        if (!queue.pending && sessions.get(session) === queue) sessions.delete(session);
+                    });
+                }
             }
         } catch (error) {
             reply(500, { code: error.code === "RESEARCH_STALLED" ? "RESEARCH_STALLED" : undefined,

@@ -9,12 +9,15 @@ import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
 import { workerResponse } from "../../src/tasks/response.js";
 
-async function fixture(t, run, claude) {
+async function fixture(t, run, claude, configured = () => {}) {
     const root = await mkdtemp(path.join(os.tmpdir(), "worker-"));
     await mkdir(path.join(root, "inbox"));
     const worker = createWorker({
         workspace: root, agent: "assistant", run, claude,
-        config: async () => ({ channels: { C1: { name: "inbox", agent: "assistant", cwd: "inbox" } } }),
+        config: async () => {
+            configured();
+            return { channels: { C1: { name: "inbox", agent: "assistant", cwd: "inbox" } } };
+        },
         profiles: () => loadProfiles(new URL("../../config/profiles.json", import.meta.url)),
         skills: () => loadSkills(new URL("../../config/skills.json", import.meta.url)),
     });
@@ -168,4 +171,52 @@ test("worker streaming", async (t) => {
     assert.equal(result.answer, "Complete");
     const invalid = await request("/run", { channel: "C1", prompt: "Image", images: ["file:///codex/auth.json"] });
     assert.equal(invalid.status, 400);
+});
+
+test("independent sessions", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const request = await fixture(t, async ({ session }) => {
+        if (session) {
+            entered.resolve();
+            await release.promise;
+        }
+        return { session: session || randomUUID(), answer: "Done" };
+    });
+    t.after(() => release.resolve());
+    const first = request("/run", { channel: "C1", prompt: "First", session: randomUUID() });
+    await entered.promise;
+    assert.equal((await request("/run", { channel: "C1", prompt: "Independent" })).status, 200);
+    release.resolve();
+    assert.equal((await first).status, 200);
+});
+
+test("session serialization", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const queued = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const session = randomUUID();
+    let running = 0;
+    let maximum = 0;
+    let configurations = 0;
+    const request = await fixture(t, async () => {
+        maximum = Math.max(maximum, ++running);
+        entered.resolve();
+        await release.promise;
+        running--;
+        return { session, answer: "Done" };
+    }, undefined, () => {
+        if (++configurations === 3) queued.resolve();
+    });
+    t.after(() => release.resolve());
+    const first = request("/run", { channel: "C1", prompt: "First", session });
+    await entered.promise;
+    const second = request("/run", { channel: "C1", prompt: "Second", session });
+    await queued.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(running, 1);
+    release.resolve();
+    assert.equal((await first).status, 200);
+    assert.equal((await second).status, 200);
+    assert.equal(maximum, 1);
 });

@@ -164,3 +164,139 @@ test("history receipt rollback", async (t) => {
         });
     }
 });
+
+test("thread concurrency", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const otherDelivered = Promise.withResolvers();
+    const calls = [];
+    const { store, runtime } = await fixture(t, async (task) => {
+        calls.push(task.prompt);
+        if (task.prompt === "first") {
+            entered.resolve();
+            await release.promise;
+        }
+        if (task.prompt === "second") assert.equal(sessionFor(store.snapshot(), task), result.session);
+        return result;
+    });
+    t.after(() => release.resolve());
+    runtime.deliver = async (task) => {
+        if (task.prompt === "other") otherDelivered.resolve();
+    };
+    await runtime.enqueue({ ...input, prompt: "first" });
+    await entered.promise;
+    await runtime.enqueue({ ...input, prompt: "second" });
+    await runtime.enqueue({ ...input, key: "other", thread: "2.2", prompt: "other" });
+    await otherDelivered.promise;
+    assert.deepEqual(calls, ["first", "other"]);
+    release.resolve();
+    await runtime.idle();
+    assert.deepEqual(calls, ["first", "other", "second"]);
+});
+
+test("delivery ordering", { timeout: 2000 }, async (t) => {
+    const sending = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const otherDelivered = Promise.withResolvers();
+    const calls = [];
+    const { runtime } = await fixture(t, async (task) => {
+        calls.push(task.prompt);
+        return result;
+    });
+    t.after(() => release.resolve());
+    runtime.deliver = async (task) => {
+        if (task.prompt === "first") {
+            sending.resolve();
+            await release.promise;
+        }
+        if (task.prompt === "other") otherDelivered.resolve();
+    };
+    await runtime.enqueue({ ...input, prompt: "first" });
+    await sending.promise;
+    await runtime.enqueue({ ...input, prompt: "second" });
+    await runtime.enqueue({ ...input, key: "other", thread: "2.2", prompt: "other" });
+    await otherDelivered.promise;
+    assert.deepEqual(calls, ["first", "other"]);
+    release.resolve();
+    await runtime.idle();
+    assert.deepEqual(calls, ["first", "other", "second"]);
+});
+
+test("parallel cancellation", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    let running = 0;
+    const { store, runtime } = await fixture(t, async (task, signal) => {
+        if (++running === 2) entered.resolve();
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        return result;
+    });
+    const first = await runtime.enqueue(input);
+    const other = { ...input, key: "other", thread: "2.2" };
+    const second = await runtime.enqueue(other);
+    await entered.promise;
+    await runtime.cancel(context, first);
+    assert.equal(store.snapshot().tasks[second].status, "running");
+    await runtime.cancel(other, second);
+    await runtime.idle();
+    assert.equal(store.snapshot().tasks[first].status, "cancelled");
+    assert.equal(store.snapshot().tasks[second].status, "cancelled");
+});
+
+test("task capacity", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    let running = 0;
+    let maximum = 0;
+    const { runtime } = await fixture(t, async () => {
+        maximum = Math.max(maximum, ++running);
+        if (running === 4) entered.resolve();
+        await release.promise;
+        running--;
+        return result;
+    });
+    t.after(() => release.resolve());
+    for (let index = 0; index < 6; index++) await runtime.enqueue({ ...input, key: String(index) });
+    await entered.promise;
+    assert.equal(runtime.active.size, 4);
+    release.resolve();
+    await runtime.idle();
+    assert.equal(maximum, 4);
+});
+
+test("thread cancellation", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const { store, runtime } = await fixture(t, async (task, signal) => {
+        entered.resolve();
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        return result;
+    });
+    const first = await runtime.enqueue(input);
+    await entered.promise;
+    const second = await runtime.enqueue(input);
+    const cancelled = await runtime.cancelThread(context);
+    assert.deepEqual(cancelled, [first, second]);
+    await runtime.idle();
+    assert.equal(store.snapshot().tasks[first].status, "cancelled");
+    assert.equal(store.snapshot().tasks[second].status, "cancelled");
+});
+
+test("cancellation commit", { timeout: 2000 }, async (t) => {
+    const entered = Promise.withResolvers();
+    const response = Promise.withResolvers();
+    const { store, runtime } = await fixture(t, async () => {
+        entered.resolve();
+        return response.promise;
+    });
+    const id = await runtime.enqueue(input);
+    await entered.promise;
+    const update = store.update.bind(store);
+    store.update = (change) => update((data) => {
+        const value = change(data);
+        if (data.tasks[id].status === "cancelling") response.resolve(result);
+        return value;
+    });
+    await runtime.cancel(context, id);
+    await runtime.idle();
+    assert.equal(store.snapshot().tasks[id].status, "cancelled");
+    assert.equal(sessionFor(store.snapshot(), input), undefined);
+});

@@ -4,7 +4,7 @@ import { createMessageHandler, createMessageSender } from "../../src/slack/messa
 import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
 
-function fixture({ beforeCommit = () => {}, postReply = () => {} } = {}) {
+function fixture({ beforeCommit = () => {}, postReply = () => {}, research, cancelThread } = {}) {
     const data = { events: {}, threads: {}, entries: {}, tasks: {}, schedules: {} };
     const jobs = [];
     const replies = [];
@@ -23,7 +23,8 @@ function fixture({ beforeCommit = () => {}, postReply = () => {} } = {}) {
                 return structuredClone(result);
             },
         },
-        runtime: { pumping: false, wake: () => {
+        research,
+        runtime: { pumping: false, cancelThread: cancelThread || (async () => []), wake: () => {
             for (const task of Object.values(data.tasks)) {
                 if (!jobs.some((job) => job.id === task.id)) jobs.push(task);
             }
@@ -196,4 +197,33 @@ test("sender permissions", async () => {
     assert.equal(sent.length, 2);
     assert.equal(sent[1].username, undefined);
     assert.equal(sent[1].markdown_text, "Answer");
+});
+
+
+test("combined stop", async () => {
+    const operations = [];
+    const { send, data } = fixture({
+        cancelThread: async (context) => {
+            operations.push(["cancel", context.thread]);
+            return ["task"];
+        },
+        research: { handle: async (context) => {
+            operations.push(["pause", context.thread]);
+            return true;
+        } },
+    });
+    await send("<@BOT> !stop");
+    assert.deepEqual(operations, [["cancel", "100.001"], ["pause", "100.001"]]);
+    assert.equal(data.inbox["C1:100.001"].status, "processed");
+});
+
+test("ordinary stop", async () => {
+    let cancellations = 0;
+    const { send, replies } = fixture({ cancelThread: async () => {
+        cancellations++;
+        return ["12345678-1234-1234-1234-123456789abc"];
+    } });
+    await send("<@BOT> !stop");
+    assert.equal(cancellations, 1);
+    assert.match(replies[0].text, /Cancellation requested: 12345678/);
 });

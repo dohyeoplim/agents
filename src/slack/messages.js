@@ -89,12 +89,17 @@ export function createMessageHandler({
             return;
         }
         const context = contextFor(item);
-        if (research && item.prompt.trim() === "!stop") {
+        if (item.prompt.trim() === "!stop") {
             try {
-                if (await research.handle(context, item.prompt, id)) {
+                const cancelled = await runtime.cancelThread(context);
+                if (await research?.handle(context, item.prompt, id)) {
                     await state.update((data) => {
                         Object.assign(data.inbox[id], { status: "processed", completedAt: Date.now() });
                     });
+                    return;
+                }
+                if (cancelled.length) {
+                    await finish(id, "Cancellation requested: " + cancelled.map((id) => id.slice(0, 8)).join(", "));
                     return;
                 }
             } catch (error) {
@@ -132,12 +137,14 @@ export function createMessageHandler({
             await finish(id, response);
             return;
         }
-        const busy = runtime.pumping;
         await state.update((data) => {
             const record = data.inbox[id];
             if (record.status !== "pending") return;
             const fileIds = [...new Set([...(task.fileIds || []), ...item.fileIds])].slice(0, 6);
             try {
+                const busy = Object.values(data.tasks || {}).some((task) => !task.researchId &&
+                    task.key === context.key && (["queued", "running", "cancelling"].includes(task.status) ||
+                        ["pending", "sending"].includes(task.delivery)));
                 record.taskId = appendTask(data, { ...context, ...task, fileIds });
                 record.status = "processed";
                 data.events[id] = Date.now();
