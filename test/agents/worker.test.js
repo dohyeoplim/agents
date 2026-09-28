@@ -45,6 +45,7 @@ test("worker context", async (t) => {
     assert.equal(response.status, 200);
     assert.equal(options.policy.id, "scholar");
     assert.equal(options.policy.webSearch, "live");
+    assert.equal(options.notionAccess, false);
     assert.ok(options.cwd.endsWith("/inbox"));
     assert.ok(options.prompt.includes("Saved preference"));
     assert.ok(options.prompt.includes("Canvas reference text"));
@@ -61,6 +62,23 @@ test("worker authorization", async (t) => {
         channel: "C1", prompt: "hi", historyContext: "x".repeat(12001),
     })).status, 400);
     assert.equal(called, false);
+});
+
+test("worker validates and forwards explicit Notion access", async (t) => {
+    const values = [];
+    const request = await fixture(t, async (input) => {
+        values.push(input.notionAccess);
+        return { session: randomUUID(), answer: "Done" };
+    });
+    for (const notionAccess of ["true", 1, null, {}, []]) {
+        assert.equal((await request("/run", { channel: "C1", prompt: "hi", notionAccess })).status, 400);
+    }
+    for (const notionAccess of [true, false]) {
+        assert.equal((await request("/run", {
+            channel: "C1", prompt: "hi", notionAccess, toolToken: "x".repeat(43),
+        })).status, 200);
+    }
+    assert.deepEqual(values, [true, false]);
 });
 
 test("worker cancellation", async (t) => {

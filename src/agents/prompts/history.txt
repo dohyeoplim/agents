@@ -8,5 +8,5 @@ Use slack_message_read with ts, parent thread, offset and revision to read long 
 Search excerpts may start mid-message. Start at offset 0 when you need to read the complete message.
 File references are metadata, not evidence that the attached file contents were read.
 An empty search within a partial range does not prove that no matching discussion exists.
-Before updating study notes or a Canvas from a discussion, read the relevant replies and cite message links.
+Before updating a document from a discussion, read the relevant replies and cite message links.
 Distinguish tentative ideas from decisions and preserve the authorship and timing of source messages.

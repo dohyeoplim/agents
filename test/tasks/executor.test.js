@@ -13,6 +13,7 @@ test("worker request", async () => {
     const execute = createTaskExecutor({
         state: { snapshot: () => ({ threads: { thread: { session } } }) },
         token: "test",
+        personal: async () => null,
         resources: { collect: async () => ({ sources: [{ id: "F123456", text: "Source text" }], notices: [] }) },
         historyContext: { hydrate: async (input, currentSession) => {
             assert.equal(input.id, task.id);
@@ -31,6 +32,7 @@ test("worker request", async () => {
     assert.equal(calls[0].url, "http://assistant:8080/run");
     assert.equal(calls[0].body.session, session);
     assert.equal(calls[0].body.profile, "assistant");
+    assert.equal(calls[0].body.notionAccess, false);
     assert.equal(JSON.parse(calls[0].body.sourceContext).sources[0].text, "Source text");
     assert.equal(calls[0].body.historyContext, "Earlier thread");
     assert.deepEqual(result.historyReceipt, { hashes: { "100.0": "revision" } });
@@ -48,6 +50,7 @@ test("worker access", async () => {
 test("tool grant lifetime", async () => {
     const events = [];
     const execute = createTaskExecutor({ state: { snapshot: () => ({}) },
+        personal: async () => null,
         config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
         briefingContext: async () => { events.push("prepare"); return "{}"; },
         toolServer: { grant: () => {
@@ -61,4 +64,47 @@ test("tool grant lifetime", async () => {
     });
     await execute({ ...task, briefingDate: "2026-01-01" }, new AbortController().signal);
     assert.deepEqual(events, ["prepare", "grant", "run", "revoke"]);
+});
+
+test("Notion access follows the configured owner and requires a task grant", async () => {
+    const cases = [
+        { settings: { owner: "U2" }, user: "U2", grant: true, allowed: true },
+        { settings: { owner: "U2" }, user: "U1", grant: true, allowed: false },
+        { settings: null, user: "U1", grant: true, allowed: true },
+        { settings: null, user: "U2", grant: true, allowed: false },
+        { settings: { owner: "U2" }, user: "U2", grant: false, allowed: false },
+    ];
+    for (const example of cases) {
+        for (const extra of [{}, { scheduleId: "daily" }, { briefingDate: "2026-01-01" }]) {
+            let sent;
+            const execute = createTaskExecutor({
+                state: { snapshot: () => ({}) },
+                personal: async () => example.settings,
+                config: async () => ({ team: "T1", users: ["U1", "U2"],
+                    channels: { C1: { agent: "assistant" } } }),
+                activity: async (context, run) => run(),
+                briefingContext: async () => "{}",
+                toolServer: { grant: () => example.grant ? { token: "task-token", revoke() {} } : undefined },
+                request: async (url, options) => {
+                    sent = JSON.parse(options.body);
+                    return { ok: true, json: async () => ({ session, answer: "Done" }) };
+                },
+            });
+            await execute({ ...task, user: example.user, ...extra }, new AbortController().signal);
+            assert.equal(sent.notionAccess, example.allowed, JSON.stringify({ example, extra }));
+            assert.equal(sent.owner, undefined);
+            assert.equal(sent.personal, undefined);
+        }
+    }
+});
+
+test("Notion owner must still be authorized for the task", async () => {
+    const execute = createTaskExecutor({
+        state: {},
+        personal: async () => assert.fail("Must authorize the task before reading private settings"),
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
+        toolServer: { grant: () => assert.fail("Must not grant unauthorized tasks") },
+        request: async () => assert.fail("Must not execute unauthorized tasks"),
+    });
+    await assert.rejects(execute({ ...task, user: "U2" }, new AbortController().signal), /no longer authorized/);
 });

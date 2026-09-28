@@ -4,10 +4,11 @@ import { knowledgeContext } from "../knowledge/memory.js";
 import { sessionFor } from "./runtime.js";
 import { resourceContext } from "../resources/context.js";
 import { workerResponse } from "./response.js";
+import { loadPersonal } from "../integrations/settings.js";
 
 export function createTaskExecutor({
     state, token, resources, streams, toolServer, briefingContext, historyContext,
-    config = loadConfig, request = fetch, activity = withSlackActivity,
+    config = loadConfig, personal = loadPersonal, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
         const current = await config();
@@ -15,6 +16,8 @@ export function createTaskExecutor({
         if (!route || route.enabled === false || task.team !== current.team || !current.users.includes(task.user)) {
             throw Error("Task is no longer authorized");
         }
+        const settings = await personal();
+        const notionOwner = task.user === (settings?.owner || current.users[0]);
         const endpoint = "http://" + route.agent + ":8080";
         let grant;
         const abort = () => {
@@ -48,6 +51,7 @@ export function createTaskExecutor({
                         sourceContext, historyContext: history.text,
                         images: sources.images || [], stream: Boolean(streams && !task.scheduleId && !task.briefingDate),
                         toolToken: grant?.token,
+                        notionAccess: notionOwner && Boolean(grant?.token),
                     }),
                     signal: AbortSignal.any([signal, AbortSignal.timeout(620000)]),
                 });

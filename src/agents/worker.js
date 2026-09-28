@@ -53,6 +53,7 @@ export function createWorker({
                 typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 16000 ||
                 (input.profile !== undefined && typeof input.profile !== "string") ||
                 (input.skill !== undefined && typeof input.skill !== "string") ||
+                (input.notionAccess !== undefined && typeof input.notionAccess !== "boolean") ||
                 (input.toolToken !== undefined &&
                     (typeof input.toolToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.toolToken))) ||
                 (input.session && (typeof input.session !== "string" || !/^[0-9a-f-]{36}$/i.test(input.session))) ||
@@ -95,6 +96,7 @@ export function createWorker({
                         signal: controller.signal,
                         images: input.images || [],
                         toolToken: input.toolToken,
+                        notionAccess: input.notionAccess === true,
                         onText: input.stream === true ? (text) => {
                             if (text.startsWith(streamed) && text.length - streamed.length < 128) return;
                             streamed = text;

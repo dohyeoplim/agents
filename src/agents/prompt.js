@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 
-const [worker, briefing, canvas, history] = await Promise.all(["worker", "briefing", "canvas", "history"].map((name) =>
-    readFile(new URL(`./prompts/${name}.txt`, import.meta.url), "utf8")));
+const [worker, briefing, canvas, history, notion] = await Promise.all(
+    ["worker", "briefing", "canvas", "history", "notion"].map((name) =>
+        readFile(new URL(`./prompts/${name}.txt`, import.meta.url), "utf8")));
 
 function render(template, values) {
     return template.replace(/\{\{([a-z]+)\}\}/g, (_, key) => {
@@ -21,6 +22,7 @@ export function buildPrompt({ profile, route, skill, input }) {
         history,
         request: input.prompt,
         canvas,
+        notion,
     };
     return render(worker, values);
 }

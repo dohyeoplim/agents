@@ -1,17 +1,6 @@
-import { mkdir, symlink } from "node:fs/promises";
-import path from "node:path";
 import { startRpc } from "./rpc.js";
-
-async function runtimeHome(root) {
-    const home = path.join(root, "bridge-runtime");
-    await mkdir(home, { recursive: true, mode: 0o700 });
-    await mkdir(path.join(root, "sessions"), { recursive: true, mode: 0o700 });
-    for (const name of ["auth.json", "sessions"]) {
-        try { await symlink(path.join(root, name), path.join(home, name)); }
-        catch (error) { if (error.code !== "EEXIST") throw error; }
-    }
-    return home;
-}
+import { runtimeHome } from "./home.js";
+import { notionConfig, notionEnabled, oauthConfig } from "../integrations/notion.js";
 
 export function threadOptions(cwd, model, policy = {}) {
     return {
@@ -29,9 +18,11 @@ export function threadOptions(cwd, model, policy = {}) {
 
 export async function runAppServer({
     cwd, prompt, session, model, policy = {}, images = [], onText = () => {}, signal,
-    timeout = 600000, executable = "codex", home = process.env.CODEX_HOME || "/codex", toolToken,
+    timeout = 600000, executable = "codex", home = process.env.CODEX_HOME || "/codex", toolToken, notionAccess = false,
 }) {
     if (signal?.aborted) throw Error("Task cancelled");
+    const codexHome = await runtimeHome(home);
+    const notion = notionAccess === true && Boolean(toolToken) && await notionEnabled(codexHome);
     let threadId;
     let answer = "";
     let finalItem;
@@ -40,8 +31,8 @@ export async function runAppServer({
     const completed = new Promise((resolve, reject) => { resolveTurn = resolve; rejectTurn = reject; });
     completed.catch(() => {});
     const rpc = startRpc({
-        executable, args: ["app-server", "--stdio"], cwd: "/tmp", timeout, signal,
-        env: { PATH: process.env.PATH, HOME: "/home/node", LANG: "C.UTF-8", CODEX_HOME: await runtimeHome(home),
+        executable, args: [...oauthConfig, "app-server", "--stdio"], cwd: "/tmp", timeout, signal,
+        env: { PATH: process.env.PATH, HOME: "/home/node", LANG: "C.UTF-8", CODEX_HOME: codexHome,
             ...(toolToken ? { PERSONAL_TOOLS_TOKEN: toolToken } : {}) },
         notify: ({ method, params }) => {
             if (params?.threadId !== threadId) return;
@@ -72,6 +63,9 @@ export async function runAppServer({
             await rpc.call("initialize", { clientInfo: { name: "slack_agents", version: "0.1.0" } });
             rpc.notify("initialized", {});
             const options = threadOptions(cwd, model, policy);
+            options.config["mcp_servers.notion"] = notionConfig(notion);
+            options.config.mcp_oauth_credentials_store = "file";
+            if (notion) options.config.mcp_optional_startup_grace_ms = 0;
             options.config["mcp_servers.personal"] = toolToken ? {
                 url: "http://gateway:8081/mcp", bearer_token_env_var: "PERSONAL_TOOLS_TOKEN",
                 startup_timeout_sec: 15, tool_timeout_sec: 95, required: true,

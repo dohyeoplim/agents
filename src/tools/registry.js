@@ -52,7 +52,7 @@ export function createTools({ personal, weather, calendar, arxiv, library, state
             run: (args, context, signal) => canvases.read(args, context, signal),
         },
         slack_canvas_bind: {
-            description: "Connect an existing channel canvas to a purpose such as study notes across threads. " +
+            description: "Connect an existing channel canvas to a document purpose across threads. " +
                 "Replacing an existing binding requires its current replaceCanvasId. " +
                 "Supply creationChangeId to reconcile an uncertain creation with the identified document.",
             schema: bindInput,
