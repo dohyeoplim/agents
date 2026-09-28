@@ -48,7 +48,8 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         };
         await writeFile(legacyFile, JSON.stringify(legacy));
         const first = await store({ legacyFile }).load();
-        assert.deepEqual(first.snapshot(), { ...legacy, inbox: {}, artifacts: {} });
+        assert.deepEqual(first.snapshot(), { ...legacy, inbox: {}, artifacts: {},
+            canvasBindings: {}, canvasReads: {}, canvasChanges: {} });
         assert.equal((await query("SELECT prompt FROM test_schema.executions")).rows[0].prompt, "한국어 작업");
         await first.update((data) => { data.entries.memory.text = "수정된 선호"; });
         await first.close();
@@ -68,6 +69,42 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
             .rows[0].table_name, null);
         await writeFile(legacyFile, JSON.stringify({ entries: {} }));
         await store({ legacyFile }).load();
+    });
+
+    await t.test("version one migrates without replacing existing data and retains Canvas records", async (t) => {
+        const { store, query } = await database(t);
+        const first = await store().load();
+        await first.update((data) => {
+            data.threads.thread = { owner: "U1", title: "Coursework", session: "session" };
+            data.tasks.task = { status: "completed", prompt: "Study", answer: "Notes", createdAt: 1000 };
+            data.entries.memory = { text: "Explain with examples", scope: "shared" };
+        });
+        const existing = first.snapshot();
+        await first.close();
+        await query(`DROP TABLE test_schema.canvas_bindings, test_schema.canvas_reads, test_schema.canvas_changes`);
+        await query("UPDATE test_schema.storage_meta SET value = '1' WHERE key = 'schema_version'");
+        const table = await query("SELECT 'test_schema.executions'::regclass::oid AS oid");
+        const migrated = await store().load();
+        assert.deepEqual(migrated.snapshot(), existing);
+        assert.equal((await query("SELECT 'test_schema.executions'::regclass::oid AS oid")).rows[0].oid,
+            table.rows[0].oid);
+        assert.equal((await query("SELECT value FROM test_schema.storage_meta WHERE key = 'schema_version'"))
+            .rows[0].value, 2);
+        const ownership = { team: "T1", user: "U1", channel: "C1", canvasId: "F1" };
+        const binding = { ...ownership, purpose: "coursework", title: "Study notes", updatedAt: 2000 };
+        const read = { ...ownership, revision: "sha256", createdAt: 2100, title: "Study notes", text: "Notes",
+            sections: [{ id: "section:1", text: "Notes" }], artifacts: [{ id: "artifact" }], taskId: "task" };
+        const change = { ...ownership, taskId: "task", status: "completed", createdAt: 2200,
+            operation: { type: "insert_at_end", text: "Example" }, beforeReadId: "read", result: { ok: true } };
+        await migrated.update((data) => {
+            data.canvasBindings.binding = binding;
+            data.canvasReads.read = read;
+            data.canvasChanges.change = change;
+        });
+        await migrated.close();
+        const reopened = await store().load();
+        assert.deepEqual(reopened.snapshot(), { ...existing, canvasBindings: { binding },
+            canvasReads: { read }, canvasChanges: { change } });
     });
 
     await t.test("one gateway owns the snapshot and queued writes commit in order", async (t) => {

@@ -27,6 +27,12 @@ export const records = {
         field("delivery", "delivery"), field("status", "status"), field("createdAt", "created_at_ms", number)] },
     artifacts: { table: "artifacts", fields: [field("hash", "content_hash"), field("path", "storage_path"),
         field("mime", "mime_type"), field("size", "size_bytes", number)] },
+    canvasBindings: { table: "canvas_bindings", version: 2, fields: [...ownership, field("canvasId", "canvas_id"),
+        field("purpose", "purpose"), field("title", "title"), field("updatedAt", "updated_at_ms", number)] },
+    canvasReads: { table: "canvas_reads", version: 2, fields: [...ownership, field("canvasId", "canvas_id"),
+        field("revision", "revision"), field("createdAt", "created_at_ms", number)] },
+    canvasChanges: { table: "canvas_changes", version: 2, fields: [...ownership, field("canvasId", "canvas_id"),
+        field("taskId", "execution_id"), field("status", "status"), field("createdAt", "created_at_ms", number)] },
     briefingSeen: { table: "briefing_history", fields: [] },
 };
 

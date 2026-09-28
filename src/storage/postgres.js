@@ -4,7 +4,7 @@ import pg from "pg";
 import { records, encodeRecord, decodeRecord, validateState } from "./records.js";
 
 const lockId = 714238905;
-const schemaVersion = 1;
+const schemaVersion = 2;
 
 export class PostgresState {
     constructor({ initial = {}, legacyFile, connection = {} } = {}) {
@@ -62,16 +62,20 @@ export class PostgresState {
     async migrate() {
         await this.client.query("CREATE TABLE IF NOT EXISTS storage_meta (key text PRIMARY KEY, value jsonb NOT NULL)");
         const version = await this.client.query("SELECT value FROM storage_meta WHERE key = 'schema_version'");
-        if (version.rowCount && version.rows[0].value !== schemaVersion) throw Error("Unsupported database schema");
-        if (version.rowCount) return;
+        const previous = version.rowCount ? version.rows[0].value : 0;
+        if (!Number.isInteger(previous) || previous < 0 || previous > schemaVersion) {
+            throw Error("Unsupported database schema");
+        }
+        if (previous === schemaVersion) return;
         for (const record of Object.values(records)) {
+            if ((record.version || 1) <= previous) continue;
             const fields = record.fields.map(({ column, type }) => `${column} ${type}`).join(", ");
             await this.client.query(`CREATE TABLE ${record.table} (
                 id text PRIMARY KEY, position bigint GENERATED ALWAYS AS IDENTITY,
                 ${fields ? fields + "," : ""} extra jsonb NOT NULL DEFAULT '{}', absent text[] NOT NULL DEFAULT '{}',
                 archived boolean NOT NULL DEFAULT false)`);
         }
-        await this.client.query(`
+        if (previous < 1) await this.client.query(`
             CREATE INDEX executions_pending ON executions(status, created_at_ms) WHERE NOT archived;
             CREATE INDEX executions_owner ON executions(team_id, user_id, channel_id);
             CREATE INDEX knowledge_owner ON knowledge_entries(team_id, user_id, scope);
@@ -79,7 +83,8 @@ export class PostgresState {
             CREATE INDEX inbox_pending ON inbox(status) WHERE NOT archived;
             CREATE INDEX artifacts_hash ON artifacts(content_hash);
         `);
-        await this.client.query("INSERT INTO storage_meta(key, value) VALUES ('schema_version', $1)",
+        await this.client.query(`INSERT INTO storage_meta(key, value) VALUES ('schema_version', $1)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
             [JSON.stringify(schemaVersion)]);
     }
 
