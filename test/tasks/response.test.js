@@ -22,3 +22,35 @@ test("worker stream", async () => {
     await assert.rejects(workerResponse(response([{ type: "error", code: "RESEARCH_STALLED" }])),
         { code: "RESEARCH_STALLED" });
 });
+
+test("worker progress", async () => {
+    const updates = [];
+    const result = await workerResponse(response([
+        { type: "heartbeat" },
+        { type: "progress", providerEvents: 2, lastActivityAt: 1000 },
+        { type: "text", text: "Output" },
+        { type: "heartbeat" },
+        { type: "result", session: "session", answer: "Done" },
+    ]), undefined, { longRunning: true, onProgress: (value) => updates.push(value) });
+    assert.deepEqual(updates, [{ providerEvents: 2, lastActivityAt: 1000 }]);
+    assert.equal(result.answer, "Done");
+});
+
+test("progress validation", async () => {
+    for (const key of ["providerEvents", "lastActivityAt"]) {
+        for (const value of [undefined, null, 0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1]) {
+            await assert.rejects(workerResponse(response([
+                { type: "progress", providerEvents: 1, lastActivityAt: 1000, [key]: value },
+            ]), undefined, { onProgress: () => assert.fail("Invalid event reached callback") }),
+            /Invalid worker progress/);
+        }
+    }
+});
+
+test("progress failure", async () => {
+    const failure = Error("Storage unavailable");
+    await assert.rejects(workerResponse(response([
+        { type: "progress", providerEvents: 1, lastActivityAt: 1000 },
+        { type: "result", session: "session", answer: "Done" },
+    ]), undefined, { onProgress: async () => { throw failure; } }), (error) => error === failure);
+});

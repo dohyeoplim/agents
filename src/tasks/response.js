@@ -1,4 +1,4 @@
-export async function workerResponse(response, onText, { longRunning = false } = {}) {
+export async function workerResponse(response, onText, { longRunning = false, onProgress } = {}) {
     if (!response.headers?.get("content-type")?.includes("application/x-ndjson")) return response.json();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -23,6 +23,13 @@ export async function workerResponse(response, onText, { longRunning = false } =
             if (event.type === "text") {
                 if (typeof event.text !== "string" || event.text.length > 28000) throw Error("Invalid stream text");
                 await onText?.(event.text);
+            }
+            if (event.type === "progress") {
+                if (!Number.isSafeInteger(event.providerEvents) || event.providerEvents <= 0 ||
+                    !Number.isSafeInteger(event.lastActivityAt) || event.lastActivityAt <= 0) {
+                    throw Error("Invalid worker progress");
+                }
+                await onProgress?.({ providerEvents: event.providerEvents, lastActivityAt: event.lastActivityAt });
             }
             if (event.type === "result") result = event;
         }

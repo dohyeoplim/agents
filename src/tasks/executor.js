@@ -63,7 +63,22 @@ export function createTaskExecutor({
                 });
                 if (!response.ok) throw Error("Worker failed");
                 const result = await workerResponse(response, research ? undefined :
-                    (text) => streams?.update(task, text), { longRunning: research });
+                    (text) => streams?.update(task, text), { longRunning: research,
+                    onProgress: research ? async (progress) => {
+                        signal.throwIfAborted();
+                        await state.update((draft) => {
+                            signal.throwIfAborted();
+                            const saved = draft.tasks?.[task.id];
+                            const job = draft.researchJobs?.[task.researchId];
+                            if (saved?.status !== "running" || saved.researchId !== task.researchId ||
+                                saved.researchRunId !== task.researchRunId || job?.runId !== task.researchRunId ||
+                                !["running", "clarifying"].includes(job?.status) ||
+                                progress.providerEvents < (saved.providerEvents || 0) ||
+                                progress.lastActivityAt < (saved.lastActivityAt || 0)) return;
+                            Object.assign(saved, progress);
+                        });
+                    } : undefined,
+                });
                 if (typeof result.answer !== "string" || !/^[0-9a-f-]{36}$/i.test(result.session || "")) {
                     throw Error("Invalid worker response");
                 }

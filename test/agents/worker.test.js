@@ -49,6 +49,7 @@ test("worker context", async (t) => {
     assert.equal(options.policy.id, "scholar");
     assert.equal(options.policy.webSearch, "live");
     assert.equal(options.notionAccess, false);
+    assert.equal(options.onActivity, undefined);
     assert.ok(options.cwd.endsWith("/inbox"));
     assert.ok(options.prompt.includes("Saved preference"));
     assert.ok(options.prompt.includes("Canvas reference text"));
@@ -219,4 +220,72 @@ test("session serialization", { timeout: 2000 }, async (t) => {
     assert.equal((await first).status, 200);
     assert.equal((await second).status, 200);
     assert.equal(maximum, 1);
+});
+
+test("provider progress", { timeout: 2000 }, async (t) => {
+    for (const provider of ["codex", "claude"]) {
+        await t.test(provider, async (t) => {
+            const release = Promise.withResolvers();
+            const run = async ({ onActivity }) => {
+                onActivity("private reasoning");
+                onActivity("private tool payload");
+                await release.promise;
+                return { session: randomUUID(), answer: "Done" };
+            };
+            const request = await fixture(t, run, run);
+            t.after(() => release.resolve());
+            const response = await request("/run", { channel: "C1", prompt: "Investigate",
+                researchId: randomUUID(), researchStage: "explore", provider });
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            const first = decoder.decode((await reader.read()).value);
+            const progress = JSON.parse(first.trim());
+            assert.deepEqual(Object.keys(progress).sort(), ["lastActivityAt", "providerEvents", "type"]);
+            assert.equal(progress.type, "progress");
+            assert.equal(progress.providerEvents, 1);
+            assert.equal(Number.isSafeInteger(progress.lastActivityAt), true);
+            release.resolve();
+            let rest = "";
+            while (true) {
+                const part = await reader.read();
+                if (part.done) break;
+                rest += decoder.decode(part.value, { stream: true });
+            }
+            const events = rest.trim().split("\n").map((line) => JSON.parse(line));
+            assert.equal(events[0].type, "progress");
+            assert.equal(events[0].providerEvents, 2);
+            assert.ok(events[0].lastActivityAt >= progress.lastActivityAt);
+            assert.equal(events[1].type, "result");
+            assert.equal(rest.includes("private"), false);
+        });
+    }
+});
+
+test("progress batching", { timeout: 2000 }, async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const release = Promise.withResolvers();
+    const request = await fixture(t, async ({ onActivity }) => {
+        onActivity();
+        onActivity();
+        await release.promise;
+        return { session: randomUUID(), answer: "Done" };
+    });
+    t.after(() => release.resolve());
+    const response = await request("/run", { channel: "C1", prompt: "Investigate",
+        researchId: randomUUID(), researchStage: "explore" });
+    t.mock.timers.tick(15000);
+    t.mock.timers.tick(15000);
+    release.resolve();
+    const events = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(events.filter((event) => event.type === "progress").map((event) => event.providerEvents), [1, 2]);
+    assert.equal(events.filter((event) => event.type === "heartbeat").length, 2);
+    assert.equal(events.at(-1).type, "result");
+});
+
+test("silent provider", async (t) => {
+    const request = await fixture(t, async () => ({ session: randomUUID(), answer: "Done" }));
+    const response = await request("/run", { channel: "C1", prompt: "Investigate",
+        researchId: randomUUID(), researchStage: "explore" });
+    const events = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(events.map((event) => event.type), ["result"]);
 });

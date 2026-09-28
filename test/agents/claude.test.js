@@ -42,7 +42,9 @@ test("Claude idle timeout", async () => {
 
 test("Claude output", async () => {
     const child = processStub();
+    const activity = [];
     const promise = runClaude({ cwd: "/tmp", prompt: "Investigate", toolToken: "token",
+        onActivity: (...args) => activity.push(args),
         spawnProcess: (command, args, options) => {
             assert.equal(command, "claude");
             assert.equal(options.detached, true);
@@ -50,11 +52,13 @@ test("Claude output", async () => {
             assert.equal(options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "false");
             return child;
         } });
+    child.stdout.write('{"type":"unknown","message":"ignored"}\n');
     child.stdout.write('{"type":"assistant","message":"internal"}\n');
     child.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false,
         session_id: "12345678-1234-1234-1234-123456789abc", result: "Evidence" }) + "\n");
     child.emit("close", 0);
     assert.equal((await promise).answer, "Evidence");
+    assert.deepEqual(activity, [[], []]);
 });
 
 test("Claude failure handling", async () => {

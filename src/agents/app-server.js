@@ -17,7 +17,7 @@ export function threadOptions(cwd, model, policy = {}) {
 }
 
 export async function runAppServer({
-    cwd, prompt, session, model, policy = {}, images = [], onText = () => {}, signal,
+    cwd, prompt, session, model, policy = {}, images = [], onText = () => {}, onActivity, signal,
     timeout = 600000, executable = "codex", home = process.env.CODEX_HOME || "/codex", toolToken, notionAccess = false,
     research = false,
 }) {
@@ -37,7 +37,8 @@ export async function runAppServer({
         env: { PATH: process.env.PATH, HOME: "/home/node", LANG: "C.UTF-8", CODEX_HOME: codexHome,
             ...(toolToken ? { PERSONAL_TOOLS_TOKEN: toolToken } : {}) },
         notify: ({ method, params }) => {
-            if (params?.threadId !== threadId) return;
+            if (!threadId || params?.threadId !== threadId) return;
+            if (method.startsWith("item/") || method.startsWith("turn/")) onActivity?.();
             if (method === "item/started" && params.item?.type === "agentMessage" &&
                 params.item.phase === "final_answer") {
                 finalItem = params.item.id;

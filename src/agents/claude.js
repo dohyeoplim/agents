@@ -16,7 +16,7 @@ export function claudeArguments(toolToken) {
         [...builtin, ...(toolToken ? researchTools.map((name) => `mcp__personal__${name}`) : [])].join(",")];
 }
 
-export function runClaude({ cwd, prompt, signal, toolToken, executable = "claude",
+export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executable = "claude",
     home = process.env.CLAUDE_CONFIG_DIR || "/claude", spawnProcess = spawn,
     idleTimeout = researchIdleTimeout() }) {
     if (signal?.aborted) return Promise.reject(Error("Task cancelled"));
@@ -60,6 +60,7 @@ export function runClaude({ cwd, prompt, signal, toolToken, executable = "claude
                     const activity = ["system", "assistant", "user", "stream_event", "tool_progress", "result"];
                     if (activity.includes(event.type)) {
                         watchdog.touch();
+                        onActivity?.();
                     }
                     if (event.type !== "result") continue;
                     if (event.is_error || event.subtype !== "success" || typeof event.result !== "string" ||

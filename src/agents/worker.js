@@ -92,6 +92,15 @@ export function createWorker({
                 if (!res.writableEnded) controller.abort();
             });
             let heartbeat;
+            let providerEvents = 0;
+            let lastActivityAt;
+            let sentEvents = 0;
+            const progress = () => {
+                if (!research || !res.headersSent || res.destroyed || res.writableEnded ||
+                    providerEvents === sentEvents) return;
+                res.write(JSON.stringify({ type: "progress", providerEvents, lastActivityAt }) + "\n");
+                sentEvents = providerEvents;
+            };
             try {
                 const perform = async () => {
                     if (controller.signal.aborted) throw Error("Task cancelled");
@@ -109,6 +118,7 @@ export function createWorker({
                         res.flushHeaders();
                         if (research) heartbeat = setInterval(() => {
                             if (!res.destroyed) res.write(JSON.stringify({ type: "heartbeat" }) + "\n");
+                            progress();
                         }, 15000);
                     }
                     let streamed = "";
@@ -124,6 +134,11 @@ export function createWorker({
                         toolToken: input.toolToken,
                         notionAccess: input.notionAccess === true,
                         research,
+                        onActivity: research ? () => {
+                            providerEvents++;
+                            lastActivityAt = Date.now();
+                            if (providerEvents === 1) progress();
+                        } : undefined,
                         onText: input.stream === true && !research ? (text) => {
                             if (text.startsWith(streamed) && text.length - streamed.length < 128) return;
                             streamed = text;
@@ -139,9 +154,11 @@ export function createWorker({
                     sessions.set(session, queue);
                 }
                 const result = await (queue ? queue.run(perform) : perform());
+                progress();
                 reply(200, result);
             } finally {
                 clearInterval(heartbeat);
+                progress();
                 if (research) researchJobs--;
                 jobs.delete(id);
                 for (const [session, queue] of sessions) {

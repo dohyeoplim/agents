@@ -41,6 +41,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const prompt = request.params.input[0].text;
     if (prompt === "wait") return;
     const notify = (method, params) => send({ method, params: { threadId, ...params } });
+    notify("thread/name/updated", { name: "private" });
+    notify("item/started", { threadId: "another-thread", item: { id: "unrelated" } });
     notify("item/started", { item: { id: "private", type: "reasoning" } });
     notify("item/reasoning/textDelta", { itemId: "private", delta: "hidden" });
     notify("item/started", { item: { id: "answer", type: "agentMessage", phase: "final_answer" } });
@@ -54,9 +56,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `, { mode: 0o755 });
     const updates = [];
+    const activity = [];
     const options = { home, cwd: home, executable, timeout: 2000 };
-    const first = await runAppServer({ ...options, prompt: "hello", onText: (text) => updates.push(text) });
+    const first = await runAppServer({ ...options, prompt: "hello", onText: (text) => updates.push(text),
+        onActivity: (...args) => activity.push(args) });
     assert.deepEqual(updates, ["Hello", "Hello world", "Hello world"]);
+    assert.deepEqual(activity, Array.from({ length: 7 }, () => []));
     const resumed = await runAppServer({ ...options, session: first.session, prompt: "image", images: ["data:test"],
         toolToken: "t".repeat(43) });
     assert.equal(resumed.answer, "Image received");

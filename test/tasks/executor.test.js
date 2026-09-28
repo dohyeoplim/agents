@@ -74,6 +74,71 @@ test("research execution", async () => {
     assert.equal(sent.stream, true);
 });
 
+function telemetry(events, { beforeUpdate, mutate } = {}) {
+    const input = { ...task, researchId: "research", researchRunId: "run", researchStage: "explore",
+        status: "running" };
+    const data = { tasks: { [input.id]: structuredClone(input) },
+        researchJobs: { research: { runId: "run", status: "running" } } };
+    mutate?.(data);
+    const controller = new AbortController();
+    const state = { snapshot: () => structuredClone(data), update: async (change) => {
+        await beforeUpdate?.(controller);
+        return change(data);
+    } };
+    const execute = createTaskExecutor({ state, personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
+        request: async (url) => {
+            if (url.endsWith("/cancel")) return { ok: true };
+            return new Response([...events, { type: "result", session, answer: "Done" }]
+                .map((event) => JSON.stringify(event) + "\n").join(""),
+            { headers: { "content-type": "application/x-ndjson" } });
+        },
+    });
+    return { run: () => execute(input, controller.signal), data, input };
+}
+
+test("research telemetry", async () => {
+    const progress = (providerEvents, lastActivityAt) => ({ type: "progress", providerEvents, lastActivityAt });
+    const f = telemetry([progress(2, 1000), { type: "heartbeat" }, progress(1, 2000), progress(3, 900)]);
+    assert.equal((await f.run()).answer, "Done");
+    assert.equal(f.data.tasks[f.input.id].providerEvents, 2);
+    assert.equal(f.data.tasks[f.input.id].lastActivityAt, 1000);
+    const empty = telemetry([{ type: "heartbeat" }]);
+    await empty.run();
+    assert.equal(empty.data.tasks[empty.input.id].providerEvents, undefined);
+    assert.equal(empty.data.tasks[empty.input.id].lastActivityAt, undefined);
+});
+
+test("stale telemetry", async () => {
+    for (const mutate of [
+        (data) => { data.researchJobs.research.runId = "replacement"; },
+        (data) => { data.researchJobs.research.status = "paused"; },
+        (data) => { data.tasks[task.id].status = "cancelled"; },
+        (data) => { data.tasks[task.id].researchRunId = "replacement"; },
+    ]) {
+        const f = telemetry([{ type: "progress", providerEvents: 2, lastActivityAt: 1000 }], { mutate });
+        const before = structuredClone(f.data);
+        await f.run();
+        assert.deepEqual(f.data, before);
+    }
+});
+
+test("cancelled telemetry", async () => {
+    const f = telemetry([{ type: "progress", providerEvents: 2, lastActivityAt: 1000 }],
+        { beforeUpdate: (controller) => controller.abort() });
+    const before = structuredClone(f.data);
+    await assert.rejects(f.run(), { name: "AbortError" });
+    assert.deepEqual(f.data, before);
+});
+
+test("telemetry storage", async () => {
+    const failure = Error("Database unavailable");
+    const f = telemetry([{ type: "progress", providerEvents: 2, lastActivityAt: 1000 }],
+        { beforeUpdate: () => { throw failure; } });
+    await assert.rejects(f.run(), (error) => error === failure);
+    assert.equal(f.data.tasks[f.input.id].providerEvents, undefined);
+});
+
 test("clarification history", async () => {
     const state = { snapshot: () => ({ threads: { thread: { session } } }) };
     const messages = [
