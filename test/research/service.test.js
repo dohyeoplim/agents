@@ -255,6 +255,9 @@ test("status message identity", async () => {
     assert.equal(messages[0].thread_ts, context.thread);
     assert.equal(f.job().messageTs, "101.001");
     assert.equal(f.job().sourceMessageTs, "100.001");
+    assert.equal(f.calls[0].messageTs, "100.001");
+    assert.deepEqual(JSON.parse(f.calls[0].prompt).conversation,
+        { channel: context.channel, thread: context.thread, messageTs: "100.001" });
 
     await f.service.handle({ ...context, messageTs: "102.001", fileIds: ["F123"] },
         "Use the attached requirements", "event2");
@@ -262,6 +265,8 @@ test("status message identity", async () => {
     assert.equal(f.job().status, "ready");
     assert.equal(f.job().messageTs, "101.001");
     assert.equal(f.job().sourceMessageTs, "102.001");
+    assert.equal(f.calls[1].messageTs, "102.001");
+    assert.equal(JSON.parse(f.calls[1].prompt).conversation.messageTs, "102.001");
     assert.deepEqual(f.job().fileIds, ["F123"]);
     assert.equal(messages.filter((item) => item.method === "post").length, 1);
     assert.ok(messages.filter((item) => item.method === "update").every((item) => item.ts === "101.001"));

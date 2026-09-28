@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTaskExecutor } from "../../src/tasks/executor.js";
+import { createHistoryContext } from "../../src/slack/history-context.js";
 
 const session = "12345678-1234-1234-1234-123456789abc";
 const task = {
@@ -71,6 +72,41 @@ test("research execution", async () => {
     assert.equal(sent.researchStage, "counter");
     assert.equal(sent.provider, "claude");
     assert.equal(sent.stream, true);
+});
+
+test("clarification history", async () => {
+    const state = { snapshot: () => ({ threads: { thread: { session } } }) };
+    const messages = [
+        { ts: "100.000001", user: "U1", text: "Compare offline methods for mobile devices" },
+        { ts: "100.000002", user: "U1", text: "Keep memory use under 4 GB" },
+        { ts: "100.000003", user: "U1", text: "Start research" },
+        { ts: "100.000004", user: "U1", text: "A later request" },
+    ];
+    let sent;
+    let unavailable = false;
+    const historyContext = createHistoryContext({ state, history: { read: async (args, context) => {
+        assert.equal(args.thread, "100.000001");
+        assert.equal(args.latest, "100.000003");
+        assert.equal(context.channel, task.channel);
+        if (unavailable) throw Error("History unavailable");
+        return { messages };
+    } } });
+    const execute = createTaskExecutor({ state, historyContext, personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
+        request: async (url, options) => {
+            sent = JSON.parse(options.body);
+            return { ok: true, json: async () => ({ session, answer: "Plan" }) };
+        },
+    });
+    const input = { ...task, researchId: session, researchStage: "clarify",
+        thread: "100.000001", messageTs: "100.000003" };
+    await execute(input, new AbortController().signal);
+    assert.equal(sent.session, undefined);
+    assert.deepEqual(JSON.parse(sent.historyContext).messages.map((message) => message.text),
+        messages.slice(0, 2).map((message) => message.text));
+    unavailable = true;
+    await execute(input, new AbortController().signal);
+    assert.match(sent.historyContext, /could not be fully loaded/);
 });
 
 test("tool grant lifetime", async () => {

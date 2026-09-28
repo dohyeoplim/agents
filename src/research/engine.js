@@ -42,6 +42,7 @@ export function createResearchEngine({ state, execute, library, publish, post })
         const prompt = JSON.stringify({ researchId: id, title: job.title,
             ...(researchStage === "clarify" ? {
                 request: job.request, questions: job.questions, answers: job.answers || [],
+                conversation: { channel: job.channel, thread: job.thread, messageTs: job.sourceMessageTs },
             } : {}),
             brief: job.brief, updates: job.updates || [],
             reports, finishRequested: job.finishRequested === true, ...extra });
@@ -51,7 +52,7 @@ export function createResearchEngine({ state, execute, library, publish, post })
             if (current.runId !== runId || !["running", "clarifying"].includes(current.status)) {
                 throw Error(researchText("RESEARCH_STOPPED"));
             }
-            const taskId = appendTask(data, { ...current, prompt });
+            const taskId = appendTask(data, { ...current, messageTs: current.sourceMessageTs, prompt });
             return Object.assign(data.tasks[taskId], { status: "running", startedAt: Date.now(),
                 researchId: id, researchRunId: runId, researchStage, provider });
         });

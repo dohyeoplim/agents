@@ -36,7 +36,7 @@ export function createTaskExecutor({
                 if (signal.aborted) throw Error("Task cancelled");
                 const data = state.snapshot();
                 const session = research ? undefined : sessionFor(data, task);
-                const history = historyContext && !research ?
+                const history = historyContext && (!research || task.researchStage === "clarify") ?
                     await historyContext.hydrate(task, session, signal) : { text: "" };
                 const sources = resources && !task.briefingDate ? await resources.collect(task, signal) :
                     { sources: [], notices: [] };
