@@ -42,9 +42,15 @@ export function queueBriefing(data, config, personal, now = Date.now()) {
             "Summarize today's weather and appointments, and recommend up to three relevant new papers. " +
             "Use live web search for up to three timely news items matching private preferences. " +
             "Include publication dates and direct links. " +
-            "Read personal preferences with briefing_preferences and honor their exclusions. " +
+            "Personal preferences are included in the supplied context. Honor them without fetching them again. " +
             "Prefer papers not previously briefed. Clearly label abstract-only recommendations. " +
+            "If the paper API is unavailable, search official arXiv pages and verify paper titles, dates and links. " +
             "Follow the private presentation preferences. Disclose unavailable providers without guessing. " +
+            "Treat a disconnected calendar as one short notice, not an empty schedule. " +
+            "Do not add generic productivity advice, invented priorities, setup instructions or execution reports. " +
+            "Do not expose filenames, HTTP codes, provider errors or formatting explanations. " +
+            "Separate every heading and paragraph with a blank line. " +
+            "Use actual source retrieval times; do not label delayed data as collected at the scheduled time. " +
             "Do not create schedules or save paper reading notes during the briefing.",
     }, now);
     data.briefing.lastDate = date;

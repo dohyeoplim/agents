@@ -1,11 +1,12 @@
 import { paperId } from "../papers/arxiv.js";
 import { markdownMessages } from "../slack/formatting.js";
+import { formatBriefing } from "./formatting.js";
 
 export function createDelivery({ state, streams, post, client, config }) {
     return async (task, answer) => {
         let thread = task.thread;
         if (task.briefingDate) {
-            const parts = markdownMessages(answer);
+            const parts = markdownMessages(formatBriefing(answer));
             const saved = state.snapshot().tasks[task.id];
             thread = saved.postedThread;
             if (!thread) {

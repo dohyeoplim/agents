@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { queueBriefing } from "../../src/briefings/scheduler.js";
 import { dayRange, createBriefingContext } from "../../src/briefings/context.js";
 import { createDelivery } from "../../src/briefings/delivery.js";
+import { formatBriefing } from "../../src/briefings/formatting.js";
 
 const config = { team: "T1", users: ["U1"], channels: { C1: { name: "daily", agent: "assistant" } } };
 const settings = { briefing: { status: "enabled", channel: "daily", time: "09:00", timezone: "UTC", language: "en" },
@@ -30,12 +31,21 @@ test("calendar day", () => {
 
 test("partial briefing", async () => {
     const prepare = createBriefingContext({ personal: async () => settings, tools: { call: async (name) => {
-        if (name === "calendar_events") throw Error("Calendar needs authorization");
+        if (name === "calendar_events") throw Error("Provider not configured: google-token.json");
         return name === "papers_search" ? { papers: [] } : { current: {}, hours: [] };
     } } });
     const result = JSON.parse(await prepare({ briefingDate: "2026-01-01" }, new AbortController().signal));
     assert.equal(result.calendar.unavailable, true);
+    assert.equal(result.calendar.reason, "not_connected");
+    assert.ok(!JSON.stringify(result).includes("google-token.json"));
+    assert.deepEqual(result.preferences.reading.confirmedInterests, [{ topic: "Test topic" }]);
     assert.deepEqual(result.papers.papers, []);
+});
+
+test("briefing spacing", () => {
+    assert.equal(formatBriefing("## Briefing\nIntro\n### Weather\nSunny"),
+        "## Briefing\n\nIntro\n\n### Weather\n\nSunny");
+    assert.equal(formatBriefing("```\n# code\nvalue\n```"), "```\n# code\nvalue\n```");
 });
 
 test("briefing thread", async () => {
