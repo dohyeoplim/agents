@@ -1,6 +1,6 @@
 import { isFileId, slackFileIds, fileKind, fileChannels } from "./identifiers.js";
 import { readDocument } from "./reader.js";
-import { imageInput } from "./images.js";
+import { imageInput, imageType } from "./images.js";
 
 const maxBytes = 5 * 1024 * 1024;
 const fileHosts = new Set(["files.slack.com", "files-origin.slack.com"]);
@@ -15,7 +15,7 @@ export function flattenBookmarks(bookmarks, parentId = null) {
     return result;
 }
 
-export function createSlackResources({ token, request = fetch, extract = readDocument }) {
+export function createSlackResources({ token, request = fetch, extract = readDocument, artifacts }) {
     const catalogs = new Map();
     const texts = new Map();
 
@@ -124,26 +124,44 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
         const kind = fileKind(file);
         if (!kind) throw Error("Supported formats: Canvas, PDF, HTML, Markdown, text, PNG, JPEG and WebP");
         if (file.size > maxBytes) throw Error("File exceeds the 5 MB limit");
+        const version = JSON.stringify([id, file.updated, file.edit_timestamp, file.size]);
+        const source = { provider: "slack", channel, fileId: id, version, kind: "original",
+            title: file.title || file.name || id };
         if (kind === "image") {
             const url = file.url_private_download || file.url_private;
             if (!url) throw Error("Slack did not provide a readable file URL");
+            const data = await download(url, signal);
+            const mime = imageType(data);
+            const saved = artifacts ? [await artifacts.put(data, { mime, source })] : [];
             return { id, title: file.title || file.name || id, url: file.permalink,
-                text: "Attached image provided to the model.", image: imageInput(await download(url, signal)),
-                embedded: [], truncated: false };
+                text: "Attached image provided to the model.", image: imageInput(data),
+                embedded: [], truncated: false, ...(artifacts ? { artifacts: saved } : {}) };
         }
-        const version = JSON.stringify([id, file.updated, file.edit_timestamp, file.size]);
-        let parsed = texts.get(version);
+        const cacheKey = JSON.stringify([channel, version]);
+        let parsed = texts.get(cacheKey);
         if (!parsed || parsed.until <= Date.now()) {
             const url = file.url_private_download || file.url_private;
             if (!url) throw Error("Slack did not provide a readable file URL");
-            const result = await extract(await download(url, signal), kind, signal);
-            parsed = { ...result, until: Date.now() + 60000 };
-            texts.set(version, parsed);
+            const data = await download(url, signal);
+            const saved = [];
+            if (artifacts) {
+                const mime = { pdf: "application/pdf", html: "text/html", text: "text/plain" }[kind];
+                saved.push(await artifacts.put(data, { mime: mime || "application/octet-stream", source }));
+            }
+            const result = await extract(data, kind, signal);
+            if (artifacts) {
+                saved.push(await artifacts.put(result.text, {
+                    mime: "text/plain", source: { ...source, kind: "extracted" },
+                }));
+            }
+            parsed = { ...result, artifacts: saved, until: Date.now() + 60000 };
+            texts.set(cacheKey, parsed);
             if (texts.size > 50) texts.delete(texts.keys().next().value);
         }
         return {
             id, title: file.title || file.name || id, url: file.permalink,
             text: parsed.text, truncated: parsed.truncated, embedded: parsed.embedded || [],
+            ...(artifacts ? { artifacts: parsed.artifacts } : {}),
         };
     }
 

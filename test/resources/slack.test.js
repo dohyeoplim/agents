@@ -5,7 +5,7 @@ import { resourceContext } from "../../src/resources/context.js";
 
 const id = "F123456";
 
-function fixture({ redirect, file = {}, bookmarks = [] } = {}) {
+function fixture({ redirect, file = {}, bookmarks = [], artifacts } = {}) {
     const calls = [];
     let version = 1;
     let visible = true;
@@ -27,7 +27,7 @@ function fixture({ redirect, file = {}, bookmarks = [] } = {}) {
         return new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
     };
     const resources = createSlackResources({
-        token: "test-token", request,
+        token: "test-token", request, artifacts,
         extract: async (data) => ({ text: data.toString(), embedded: [], truncated: false }),
     });
     return { resources, calls, edit: () => version++, revoke: () => { visible = false; } };
@@ -88,4 +88,67 @@ test("relevant excerpt", () => {
     const text = "a".repeat(10000) + " Important deadline: Friday " + "b".repeat(10000);
     const result = resourceContext({ sources: [{ id, title: "Project", text }], notices: [] }, "deadline");
     assert.ok(JSON.parse(result).sources[0].text.includes("deadline: Friday"));
+});
+
+test("document reads archive original bytes and extracted text per version and channel", async () => {
+    const saved = [];
+    const artifacts = { put: async (data, metadata) => {
+        const result = { id: String(saved.length), ...metadata };
+        saved.push({ data, ...result });
+        return result;
+    } };
+    const { resources, edit } = fixture({ artifacts, file: { channels: ["C1", "C2"] } });
+    const first = await resources.read("C1", id);
+    assert.equal(first.artifacts.length, 2);
+    assert.ok(Buffer.isBuffer(saved[0].data));
+    assert.equal(saved[1].data, first.text);
+    assert.equal(saved[0].source.kind, "original");
+    assert.equal(saved[1].source.kind, "extracted");
+    assert.equal(saved[0].source.fileId, id);
+    assert.ok(!JSON.stringify(saved).includes("test-token"));
+    assert.ok(!JSON.stringify(saved).includes("url_private"));
+    await resources.read("C1", id);
+    assert.equal(saved.length, 2);
+    await resources.read("C2", id);
+    assert.equal(saved[2].source.channel, "C2");
+    edit();
+    await resources.read("C1", id);
+    assert.equal(saved.length, 6);
+    assert.notEqual(saved[0].source.version, saved[4].source.version);
+});
+
+test("unauthorized files are never archived", async () => {
+    let writes = 0;
+    const { resources } = fixture({
+        file: { channels: ["C2"] }, artifacts: { put: async () => { writes++; } },
+    });
+    await assert.rejects(resources.read("C1", id), /Share the file/);
+    assert.equal(writes, 0);
+});
+
+test("image originals are archived only after format and channel validation", async () => {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
+        "base64");
+    const saved = [];
+    let data = png;
+    const resources = createSlackResources({
+        token: "secret",
+        artifacts: { put: async (bytes, metadata) => { saved.push({ bytes, metadata }); return metadata; } },
+        request: async (url) => {
+            if (url.startsWith("https://files.slack.com/")) return new Response(data);
+            return Response.json({ ok: true, file: {
+                id, channels: ["C1"], mimetype: "image/png", updated: 3,
+                url_private: "https://files.slack.com/image.png",
+            } });
+        },
+    });
+    const result = await resources.read("C1", id);
+    assert.equal(result.artifacts.length, 1);
+    assert.deepEqual(saved[0].bytes, png);
+    assert.equal(saved[0].metadata.mime, "image/png");
+    assert.equal(saved[0].metadata.source.fileId, id);
+    await assert.rejects(resources.read("C2", id), /Share the file/);
+    data = Buffer.from("not an image");
+    await assert.rejects(resources.read("C1", id), /Supported images/);
+    assert.equal(saved.length, 1);
 });
