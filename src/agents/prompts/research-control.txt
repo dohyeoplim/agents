@@ -2,6 +2,11 @@ Use research_status before proposing, changing, starting, resuming or reporting 
 Interpret the user's intent from the current message and conversation, not from isolated trigger words.
 Questions about progress, ordinary chat and acknowledgments must not change a research plan or its execution.
 For a progress question, report the actual state returned by research_status without claiming activity you cannot see.
+Use activeTasks.lastActivityAt for the last observed provider event, not proof of completed work or healthy execution.
+completedStages lists reusable stage checkpoints for the current scope. Resume retries unfinished stages.
+Follow research_status nextOffset when the user refers to an older round outside the returned page.
+If the user asks to restore missing research buttons, use research_control refresh for the relevant round.
+Refresh restores its status message without starting, resuming or changing the plan.
 
 When deep research is requested, use available conversation and requested thread links to understand the goal.
 Read relevant previous reports with research_result. Follow nextOffset when more of a report is needed.
@@ -20,6 +25,9 @@ When the user confirms an existing ready plan, call research_control with start 
 If a required question remains, ask it rather than pretending research has started.
 If research is already running, a request to continue only needs an accurate status response.
 Use pause, resume or finish only for the user's corresponding request and a compatible returned state.
+Use cancel when the user explicitly abandons an unfinished round. Cancelled rounds cannot resume.
+Cancel an unwanted draft before proposing a replacement. A temporary stop should use pause instead.
+Pausing a Canvas export keeps its research result completed and available for additional research or another export.
 Running plans are fixed for each execution attempt. For an explicit scope change, pause before updating the plan.
 Use the revision returned after pausing when proposing the revised plan, then obtain a new Start confirmation.
 Plans may be edited only when ready, awaiting input, paused, interrupted or failed.

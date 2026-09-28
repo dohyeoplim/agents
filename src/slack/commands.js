@@ -24,7 +24,7 @@ export const helpText = [
     "!delegate <profile> <request> - run a separate specialist session",
     "!tasks - list recent tasks in this channel",
     "!research <request> - prepare a deep research plan",
-    "!stop [task-id] - cancel a queued or running task",
+    "!stop [task-id] - stop this thread's tasks and research, or cancel one task",
     "!retry <task-id> - explicitly rerun a failed or interrupted task",
     "!redeliver <task-id> - resend a saved answer without rerunning the model",
     "!schedule every 1h [--on-change] <request>",

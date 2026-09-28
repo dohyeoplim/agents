@@ -11,7 +11,7 @@ const metadata = reference.extend({
 const input = z.string().trim().min(1).max(3000);
 const plain = (value, limit = 2900) => ({ type: "plain_text", text: String(value || " ").slice(0, limit) });
 
-export function renderResearch(job) {
+export function renderResearch(job, now = Date.now()) {
     const heading = researchText("UI_HEADING", { title: job.title || researchText("UI_UNTITLED") });
     const status = researchText(`UI_STATUS_${job.status}`);
     const blocks = [
@@ -23,12 +23,18 @@ export function renderResearch(job) {
     const details = [researchText("UI_ROUND_PROGRESS", {
         round: job.round || 1, sources: progress.sources, reports: progress.reports,
     })];
+    if (job.finishRequested && !["completed", "cancelled"].includes(job.status)) {
+        details.push(researchText("UI_FINISH_REQUESTED"));
+    }
     const phaseStartedAt = progress.phaseStartedAt || job.phaseStartedAt;
     if (Number.isFinite(phaseStartedAt)) {
         details.push(researchText("UI_PHASE_STARTED", { time: new Date(phaseStartedAt).toISOString() }));
     }
     for (const task of progress.activeTasks || []) {
-        details.push(researchText("UI_ACTIVE_TASK", { provider: task.provider, stage: task.stage }));
+        details.push(researchText(task.lastActivityAt ? "UI_PROVIDER_ACTIVITY" : "UI_ACTIVE_TASK", {
+            provider: task.provider, stage: task.stage,
+            seconds: Math.max(0, Math.floor((now - task.lastActivityAt) / 1000)),
+        }));
     }
     blocks.push({ type: "context", elements: [plain(details.join("\n"))] });
     for (let offset = 0; offset < (job.brief || "").length; offset += 2900) {
@@ -52,22 +58,30 @@ export function renderResearch(job) {
 export function createResearchSlack({ client, state, config, control, reply }) {
     const pending = new Map();
     const get = (id) => state.snapshot().researchJobs?.[id];
+    const messageFor = (job) => ({ channel: job.channel,
+        ...renderResearch({ ...job, progress: researchProgress(job, state.snapshot()) }) });
 
     function publish(job) {
         const previous = pending.get(job.id) || Promise.resolve();
         const next = previous.catch(() => {}).then(async () => {
-            const current = get(job.id);
+            let current = get(job.id);
             if (!current) return;
-            const progress = researchProgress(current, state.snapshot());
-            const message = { channel: current.channel, ...renderResearch({ ...current, progress }) };
-            if (current.messageTs) return client.chat.update({ ...message, ts: current.messageTs });
+            if (current.messageTs) {
+                try { return await client.chat.update({ ...messageFor(current), ts: current.messageTs }); }
+                catch (error) {
+                    if (error.data?.error !== "message_not_found") throw error;
+                }
+                const latest = get(job.id);
+                if (!latest || latest.messageTs !== current.messageTs) return;
+                current = latest;
+            }
             const sent = await client.chat.postMessage({
-                ...message, thread_ts: current.thread, unfurl_links: false, unfurl_media: false,
+                ...messageFor(current), thread_ts: current.thread, unfurl_links: false, unfurl_media: false,
             });
             if (!/^\d+\.\d+$/.test(sent?.ts || "")) throw Error(researchText("UI_DELIVERY_UNCONFIRMED"));
             await state.update((data) => {
                 const saved = data.researchJobs?.[current.id];
-                if (saved && !saved.messageTs) saved.messageTs = sent.ts;
+                if (saved && saved.messageTs === current.messageTs) saved.messageTs = sent.ts;
             });
         });
         pending.set(job.id, next);
@@ -110,7 +124,8 @@ export function createResearchSlack({ client, state, config, control, reply }) {
     }
 
     function register(app) {
-        app.action(/^research_(start|edit|reply|status|pause|summarize|finish|resume|more|canvas)$/, async (event) => {
+        const actionPattern = /^research_(start|edit|reply|status|pause|cancel|summarize|finish|resume|more|canvas)$/;
+        app.action(actionPattern, async (event) => {
             const { ack, body, action } = event;
             await ack();
             const channel = body.channel?.id;

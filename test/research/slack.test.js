@@ -37,15 +37,19 @@ function fixture(overrides = {}) {
             return "Accepted";
         },
     });
-    ui.register({ action: (_, fn) => { handlers.action = fn; }, view: (_, fn) => { handlers.view = fn; } });
+    ui.register({
+        action: (pattern, fn) => { handlers.action = fn; handlers.actionPattern = pattern; },
+        view: (_, fn) => { handlers.view = fn; },
+    });
     function click(action = "start", body = {}, value = `${id}:1`) {
+        assert.match(`research_${action}`, handlers.actionPattern);
         return handlers.action({ ack: async () => calls.push(["ack"]),
             body: { team: { id: "T1" }, user: { id: "U1" }, channel: { id: "C1" },
                 message: { ts: "101.001" }, trigger_id: "trigger", ...body },
             action: { action_id: `research_${action}`, value },
         });
     }
-    return { job, data, calls, config, handlers, ui, click };
+    return { job, data, calls, client, config, handlers, ui, click };
 }
 
 test("completion actions", () => {
@@ -62,13 +66,24 @@ test("scope actions", async () => {
     for (const status of ["paused", "interrupted", "failed"]) {
         for (const scope of [{ startedAt: 1 }, { reports: [{ stage: "explore" }] }]) {
             const { job, click, calls } = fixture({ status, ...scope });
-            assert.deepEqual(researchActions(job), ["resume", "edit"]);
+            assert.deepEqual(researchActions(job), ["resume", "edit", "cancel"]);
             await click("edit");
             assert.equal(calls.some(([kind]) => kind === "open"), true);
         }
-        assert.deepEqual(researchActions({ status }), ["resume", "edit"]);
+        assert.deepEqual(researchActions({ status }), ["resume", "edit", "cancel"]);
     }
     assert.equal(researchActions({ status: "running", startedAt: 1 }).includes("edit"), false);
+});
+
+test("finishing status", () => {
+    const { job } = fixture({ status: "running", finishRequested: true });
+    const result = renderResearch(job);
+    assert.match(result.blocks[2].elements[0].text, /Finish requested/);
+    assert.equal(researchActions(job).includes("finish"), false);
+    assert.equal(researchActions(job).includes("pause"), true);
+    assert.equal(researchActions(job).includes("cancel"), true);
+    job.status = "completed";
+    assert.doesNotMatch(renderResearch(job).blocks[2].elements[0].text, /Finish requested/);
 });
 
 test("round progress", async () => {
@@ -93,13 +108,26 @@ test("round progress", async () => {
 });
 
 test("clarification actions", async () => {
-    for (const action of ["status", "pause"]) {
+    for (const action of ["status", "pause", "cancel"]) {
         const { job, click, calls } = fixture({ status: "clarifying" });
         assert.deepEqual(renderResearch(job).blocks.at(-1).elements.map((button) => button.text.text),
-            ["Status", "Pause"]);
+            ["Status", "Pause", "Cancel"]);
         await click(action);
         assert.equal(calls.find(([kind]) => kind === "control")[2], action);
     }
+});
+
+test("provider activity", () => {
+    const { job, data } = fixture({ status: "running", runId: "current" });
+    data.tasks = { task: { researchId: id, researchRunId: "current", status: "running", provider: "claude",
+        researchStage: "counter", startedAt: 1000, lastActivityAt: 4000, providerEvents: 7 } };
+    const progress = researchProgress(job, data);
+    assert.equal(progress.activeTasks[0].lastActivityAt, 4000);
+    assert.equal(progress.activeTasks[0].providerEvents, 7);
+    const result = renderResearch({ ...job, progress }, 19000);
+    assert.match(result.blocks[2].elements[0].text, /claude · counter · last event 15s ago/);
+    data.tasks.task.researchRunId = "previous";
+    assert.deepEqual(researchProgress(job, data).activeTasks, []);
 });
 
 test("status publishing", async () => {
@@ -112,6 +140,50 @@ test("status publishing", async () => {
     assert.equal(calls.filter(([kind]) => kind === "update").length, 1);
     assert.equal(job.messageTs, "102.001");
     assert.match(calls.find(([kind]) => kind === "post")[1].text, /running/);
+});
+
+test("deleted status", async () => {
+    const { job, ui, client, calls, click } = fixture();
+    const update = client.chat.update;
+    client.chat.update = async (message) => {
+        if (message.ts === "101.001") {
+            job.status = "paused";
+            job.revision = 2;
+            throw Object.assign(Error("deleted"), { data: { error: "message_not_found" } });
+        }
+        return update(message);
+    };
+    await Promise.all([ui.publish(job), ui.publish(job)]);
+    const posts = calls.filter(([kind]) => kind === "post");
+    assert.equal(posts.length, 1);
+    assert.match(posts[0][1].text, /paused/);
+    assert.equal(posts[0][1].thread_ts, "100.001");
+    assert.equal(job.messageTs, "102.001");
+    assert.equal(calls.find(([kind]) => kind === "update")[1].ts, "102.001");
+    await click("resume", { message: { ts: "102.001" } }, `${id}:2`);
+    assert.equal(calls.find(([kind]) => kind === "control")[2], "resume");
+});
+
+test("update failure", async () => {
+    for (const reason of ["ratelimited", "internal_error", "not_authed"]) {
+        const { job, ui, client, calls } = fixture();
+        const failure = Object.assign(Error(reason), { data: { error: reason } });
+        client.chat.update = async () => { throw failure; };
+        await assert.rejects(ui.publish(job), (error) => error === failure);
+        assert.equal(calls.some(([kind]) => kind === "post"), false);
+        assert.equal(job.messageTs, "101.001");
+    }
+});
+
+test("replacement race", async () => {
+    const { job, ui, client, calls } = fixture();
+    client.chat.update = async () => {
+        job.messageTs = "103.001";
+        throw Object.assign(Error("deleted"), { data: { error: "message_not_found" } });
+    };
+    await ui.publish(job);
+    assert.equal(calls.some(([kind]) => kind === "post"), false);
+    assert.equal(job.messageTs, "103.001");
 });
 
 test("action replay", async () => {

@@ -11,7 +11,7 @@ const proposal = { title: plan.title, brief: plan.brief, questions: [] };
 const taskContext = { ...context, id: "task1" };
 const deferred = () => Promise.withResolvers();
 
-function fixture(run, send) {
+function fixture(run, send, authorize) {
     let data = { researchJobs: {}, researchSources: {}, tasks: {}, threads: {}, events: {} };
     let tail = Promise.resolve();
     const state = { snapshot: () => structuredClone(data), update: (change) => {
@@ -35,7 +35,7 @@ function fixture(run, send) {
     const sent = [];
     const published = [];
     const current = { team: "T1", users: ["U1", "U2"], channels: { C1: { agent: "assistant" } } };
-    const config = async () => structuredClone(current);
+    const config = async () => { await authorize?.(); return structuredClone(current); };
     const execute = async (task, signal) => {
         calls.push(task);
         const answer = await run?.(task, signal);
@@ -80,6 +80,30 @@ test("conversation routing", async () => {
     assert.equal(woke, true);
     assert.deepEqual(f.state.snapshot().researchJobs, before);
     assert.equal(f.calls.length, 0);
+});
+
+test("live progress", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const started = deferred();
+    const f = fixture(async (_, signal) => {
+        started.resolve();
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    });
+    const job = await f.ready();
+    await f.service.control(job.id, "start", undefined, context);
+    await started.promise;
+    await new Promise(setImmediate);
+    f.published.length = 0;
+    t.mock.timers.tick(15000);
+    await new Promise(setImmediate);
+    assert.equal(f.published.length, 1);
+    assert.equal(f.published[0].status, "running");
+    await f.service.control(job.id, "pause", undefined, context);
+    await f.service.idle();
+    f.published.length = 0;
+    t.mock.timers.tick(60000);
+    await new Promise(setImmediate);
+    assert.equal(f.published.length, 0);
 });
 
 test("research lifecycle", async () => {
@@ -141,6 +165,7 @@ test("pause and resume", async () => {
     await f.state.update((data) => { data.researchSources.saved = { researchId: initial.id, text: "Evidence" }; });
     await f.service.control(initial.id, "start", undefined, context);
     await Promise.all([started.codex.promise, started.claude.promise]);
+    await f.service.control(initial.id, "finish", undefined, context);
     await f.service.control(initial.id, "pause", undefined, context);
     await f.service.idle();
     assert.deepEqual(aborted.sort(), ["claude", "codex"]);
@@ -150,6 +175,7 @@ test("pause and resume", async () => {
     await f.service.control(initial.id, "resume", undefined, context);
     await f.service.idle();
     assert.equal(f.job().status, "completed");
+    assert.equal(f.job().finishRequested, true);
 });
 
 test("concurrent chat", async () => {
@@ -425,5 +451,128 @@ test("closed mutations", async () => {
     await assert.rejects(f.service.propose({ ...proposal, id: initial.id, revision: initial.revision,
         brief: "Changed scope" }, taskContext));
     await assert.rejects(f.service.control(initial.id, "start", undefined, context));
+    assert.equal(f.calls.length, 0);
+});
+
+test("cancelled rounds", async () => {
+    for (const status of ["ready", "awaiting_input", "paused", "interrupted", "failed"]) {
+        const f = fixture();
+        const initial = await f.ready();
+        await f.state.update((data) => {
+            Object.assign(data.researchJobs[initial.id], { status, questions: ["Which device?"],
+                error: "Resume to retry" });
+        });
+        const cancelled = await f.service.act({ id: initial.id, revision: initial.revision, action: "cancel" },
+            taskContext);
+        assert.equal(cancelled.status, "cancelled");
+        assert.deepEqual(cancelled.actions, []);
+        assert.deepEqual(cancelled.questions, []);
+        assert.equal(cancelled.error, "");
+        await assert.rejects(f.service.control(initial.id, "resume", undefined, context));
+        const replacement = await f.service.propose({ ...proposal, brief: "New topic" }, taskContext);
+        assert.notEqual(replacement.id, initial.id);
+        assert.equal(replacement.status, "ready");
+    }
+});
+
+test("running cancellation", async () => {
+    const started = deferred();
+    const f = fixture(async (task, signal) => {
+        if (!["explore", "counter"].includes(task.researchStage)) return;
+        started.resolve();
+        await new Promise((resolve, reject) => signal.addEventListener("abort",
+            () => reject(signal.reason), { once: true }));
+    });
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await started.promise;
+    await f.service.control(initial.id, "cancel", undefined, context);
+    await f.service.idle();
+    assert.equal(f.job().status, "cancelled");
+    assert.ok(Object.values(f.state.snapshot().tasks).every((task) => task.status === "cancelled"));
+    assert.equal(f.calls.some((task) => task.researchStage === "synthesize"), false);
+});
+
+test("export pause", async () => {
+    const started = deferred();
+    const f = fixture(async (task, signal) => {
+        if (task.researchStage !== "canvas") return;
+        started.resolve();
+        await new Promise((resolve, reject) => signal.addEventListener("abort",
+            () => reject(signal.reason), { once: true }));
+    });
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await f.service.idle();
+    const finalReportId = f.job().finalReportId;
+    await f.service.control(initial.id, "canvas", undefined, context);
+    await started.promise;
+    const exportRun = f.job().runId;
+    await f.service.control(initial.id, "pause", undefined, context);
+    assert.equal(f.job().status, "completed");
+    assert.equal(f.job().finalReportId, finalReportId);
+    assert.notEqual(f.job().runId, exportRun);
+    const next = await f.service.propose({ ...proposal, parentId: initial.id },
+        { ...taskContext, id: "task2" });
+    await f.service.idle();
+    assert.equal(next.parentId, initial.id);
+    assert.equal(f.state.snapshot().researchJobs[initial.id].status, "completed");
+});
+
+test("export recovery", async () => {
+    for (const status of ["paused", "interrupted", "failed", "queued", "running"]) {
+        const f = fixture();
+        const initial = await f.ready();
+        await f.service.control(initial.id, "start", undefined, context);
+        await f.service.idle();
+        await f.state.update((data) => {
+            Object.assign(data.researchJobs[initial.id], { status, mode: "canvas", canvasBusy: true });
+        });
+        await f.service.recover();
+        assert.equal(f.job().status, "completed");
+        assert.equal(f.job().canvasBusy, false);
+        assert.deepEqual((await f.service.inspect(taskContext)).rounds[0].actions, ["more", "canvas"]);
+        const next = await f.service.propose({ ...proposal, parentId: initial.id },
+            { ...taskContext, id: "task2" });
+        assert.equal(next.parentId, initial.id);
+    }
+});
+
+test("authorization cancellation", async () => {
+    for (const action of ["propose", "start"]) {
+        const entered = deferred();
+        const release = deferred();
+        let block = false;
+        const f = fixture(undefined, undefined, async () => {
+            if (block) { entered.resolve(); await release.promise; }
+        });
+        const initial = await f.ready();
+        const before = f.state.snapshot().researchJobs;
+        const controller = new AbortController();
+        block = true;
+        const pending = action === "propose" ? f.service.propose({ ...proposal, id: initial.id,
+            revision: initial.revision, brief: "Changed scope" }, taskContext, controller.signal) :
+            f.service.act({ id: initial.id, revision: initial.revision, action },
+                { ...taskContext, id: "task2", messageTs: "101.001" }, controller.signal);
+        await entered.promise;
+        controller.abort();
+        release.resolve();
+        await assert.rejects(pending, { name: "AbortError" });
+        await f.service.idle();
+        assert.deepEqual(f.state.snapshot().researchJobs, before);
+        assert.equal(f.calls.length, 0);
+    }
+});
+
+test("queued cancellation", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    const before = f.state.snapshot().researchJobs;
+    const controller = new AbortController();
+    const update = f.state.update;
+    f.state.update = (mutate) => update((data) => { controller.abort(); return mutate(data); });
+    await assert.rejects(f.service.act({ id: initial.id, revision: initial.revision, action: "start" },
+        { ...taskContext, id: "task2", messageTs: "101.001" }, controller.signal), { name: "AbortError" });
+    assert.deepEqual(f.state.snapshot().researchJobs, before);
     assert.equal(f.calls.length, 0);
 });

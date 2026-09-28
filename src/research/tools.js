@@ -10,6 +10,8 @@ const descriptions = z.object({
 }).strict().parse(JSON.parse(await readFile(new URL("./tools.json", import.meta.url), "utf8")));
 
 const revision = z.number().int().nonnegative();
+export const statusInput = z.object({ offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(1).max(10).default(10) }).strict();
 export const proposalInput = z.object({
     title: z.string().trim().min(1).max(150),
     brief: z.string().trim().min(1).max(6000),
@@ -24,7 +26,7 @@ export const proposalInput = z.object({
 });
 
 export const controlInput = z.object({ id: z.uuid(), revision,
-    action: z.enum(["start", "resume", "pause", "finish", "canvas"]) }).strict();
+    action: z.enum(["start", "resume", "pause", "finish", "canvas", "cancel", "refresh"]) }).strict();
 export const resultInput = z.object({ id: z.uuid(),
     offset: z.number().int().nonnegative().default(0) }).strict();
 
@@ -33,20 +35,20 @@ export function createResearchControlTools(coordinator) {
     return {
         research_status: {
             description: descriptions.research_status,
-            schema: z.object({}).strict(),
-            run: (_args, context) => coordinator.inspect(context),
+            schema: statusInput,
+            run: (args, context) => coordinator.inspect(context, args),
         },
         research_propose: {
             description: descriptions.research_propose,
             schema: proposalInput,
             readOnly: false,
-            run: (args, context) => coordinator.propose(args, context),
+            run: (args, context, signal) => coordinator.propose(args, context, signal),
         },
         research_control: {
             description: descriptions.research_control,
             schema: controlInput,
             readOnly: false,
-            run: (args, context) => coordinator.act(args, context),
+            run: (args, context, signal) => coordinator.act(args, context, signal),
         },
         research_result: {
             description: descriptions.research_result,

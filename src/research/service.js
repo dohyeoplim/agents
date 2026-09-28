@@ -3,7 +3,7 @@ import { profileFor } from "../agents/profiles.js";
 import { loadPersonal } from "../integrations/settings.js";
 import { createResearchEngine } from "./engine.js";
 import { researchText } from "./copy.js";
-import { proposalInput, controlInput, resultInput } from "./tools.js";
+import { proposalInput, controlInput, resultInput, statusInput } from "./tools.js";
 import { researchActions } from "./actions.js";
 import { researchProgress } from "./progress.js";
 
@@ -23,6 +23,7 @@ export function createResearch({ state, execute, library, config, post, personal
     function view(job) {
         return { id: job.id, parentId: job.parentId, round: job.round || 1, title: job.title, brief: job.brief,
             status: job.status, revision: job.revision, questions: job.questions || [],
+            stage: job.stage || "", finishRequested: job.finishRequested === true,
             actions: researchActions(job), progress: researchProgress(job, state.snapshot()),
             finalReportId: job.finalReportId, error: job.error || "" };
     }
@@ -39,14 +40,18 @@ export function createResearch({ state, execute, library, config, post, personal
         }
     }
 
-    async function inspect(context) {
+    async function inspect(context, input = {}) {
+        const { offset, limit } = statusInput.parse(input);
         await authorize(context);
         const rounds = Object.values(state.snapshot().researchJobs || {}).filter((job) => sameOwner(job, context))
-            .reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, 10);
-        return { latestId: rounds[0]?.id, rounds: rounds.map(view) };
+            .reverse().sort((a, b) => b.createdAt - a.createdAt);
+        const end = offset + limit;
+        return { latestId: rounds[0]?.id, rounds: rounds.slice(offset, end).map(view), offset,
+            total: rounds.length, nextOffset: end < rounds.length ? end : null };
     }
 
-    function proposal(data, args, context) {
+    function proposal(data, args, context, signal) {
+        signal?.throwIfAborted();
         if (closed) throw Error(researchText("RESEARCH_STOPPED"));
         const jobs = data.researchJobs ??= {};
         const current = args.id ? jobs[args.id] : null;
@@ -70,9 +75,10 @@ export function createResearch({ state, execute, library, config, post, personal
                 JSON.stringify(current.questions || []) === JSON.stringify(args.questions)) return current;
         } else {
             const existing = Object.values(jobs).find((job) => sameOwner(job, context) &&
-                job.proposalTaskId && job.proposalTaskId === context.id);
+                job.status !== "cancelled" && job.proposalTaskId && job.proposalTaskId === context.id);
             if (existing) return existing;
-            if (Object.values(jobs).some((job) => sameOwner(job, context) && job.status !== "completed")) {
+            if (Object.values(jobs).some((job) => sameOwner(job, context) &&
+                !["completed", "cancelled"].includes(job.status))) {
                 throw Error(researchText("RESEARCH_ROUND_ACTIVE"));
             }
         }
@@ -92,23 +98,23 @@ export function createResearch({ state, execute, library, config, post, personal
         return job;
     }
 
-    async function propose(input, context) {
+    async function propose(input, context, signal) {
         const args = proposalInput.parse(input);
         await authorize(context);
         if (context.researchId || context.scheduleId || context.briefingDate) {
             throw Error(researchText("RESEARCH_UNAVAILABLE"));
         }
-        const job = await state.update((data) => proposal(data, args, context));
+        const job = await state.update((data) => proposal(data, args, context, signal));
         await publish(job);
         return view(get(job.id));
     }
 
-    async function act(input, context) {
+    async function act(input, context, signal) {
         const args = controlInput.parse(input);
         if (context.researchId || context.scheduleId || context.briefingDate) {
             throw Error(researchText("RESEARCH_UNAVAILABLE"));
         }
-        await control(args.id, args.action, undefined, { ...context, revision: args.revision });
+        await control(args.id, args.action, undefined, { ...context, revision: args.revision }, signal);
         return view(get(args.id));
     }
 
@@ -148,6 +154,13 @@ export function createResearch({ state, execute, library, config, post, personal
             const controller = new AbortController();
             const entry = { controller, promise: null };
             active.set(id, entry);
+            const refresh = setInterval(() => {
+                const current = get(id);
+                if (closed || entry.refresh || controller.signal.aborted || current?.runId !== job.runId ||
+                    !activeStatuses.includes(current.status)) return;
+                entry.refresh = publish(current).catch(() => {}).finally(() => { entry.refresh = null; });
+            }, 15000);
+            refresh.unref();
             entry.promise = Promise.resolve().then(async () => {
                 await authorize(job);
                 if (controller.signal.aborted) return;
@@ -165,12 +178,14 @@ export function createResearch({ state, execute, library, config, post, personal
                     const current = data.researchJobs[id];
                     if (current.runId !== job.runId || !activeStatuses.includes(current.status)) return null;
                     Object.assign(current, { status: mode === "canvas" ? "completed" : "failed", canvasBusy: false,
+                        ...(mode === "canvas" ? { stage: "" } : {}),
                         error: String(error.message).slice(0, 500), revision: current.revision + 1,
                         updatedAt: Date.now() });
                     return current;
                 });
                 if (failed) await publish(failed).catch(() => {});
             }).catch(() => console.error("Research state update failed")).finally(() => {
+                clearInterval(refresh);
                 active.delete(id);
                 pump();
             });
@@ -182,11 +197,12 @@ export function createResearch({ state, execute, library, config, post, personal
         pump();
     }
 
-    async function change(id, context, mutate) {
+    async function change(id, context, mutate, signal) {
         const job = get(id);
         if (!job) throw Error(researchText("RESEARCH_NOT_FOUND"));
         await authorize(job, context);
         return state.update((data) => {
+            signal?.throwIfAborted();
             if (closed) throw Error(researchText("RESEARCH_STOPPED"));
             const current = data.researchJobs[id];
             if (!sameOwner(current, context) || (context.revision !== undefined &&
@@ -205,12 +221,22 @@ export function createResearch({ state, execute, library, config, post, personal
             sources: progress.sources, reports: progress.reports, round: job.round || 1 });
     }
 
-    async function control(id, action, text, context) {
+    async function control(id, action, text, context, signal) {
         const job = get(id);
         if (!job) throw Error(researchText("RESEARCH_NOT_FOUND"));
         await authorize(job, context);
+        signal?.throwIfAborted();
         if (action === "status") return status(job);
         if (closed) throw Error(researchText("RESEARCH_STOPPED"));
+        if (action === "refresh") {
+            const current = get(id);
+            if (!current || !sameOwner(current, context) || current.revision !== context?.revision) {
+                throw Error(researchText("RESEARCH_CHANGED"));
+            }
+            if (!ui) throw Error(researchText("RESEARCH_UNAVAILABLE"));
+            await ui.publish(current);
+            return "";
+        }
         if (!researchActions(job).includes(action)) throw Error(researchText("RESEARCH_ACTION_UNAVAILABLE"));
         if (action === "summarize") {
             const report = [...(job.reports || [])].reverse().find((item) =>
@@ -221,16 +247,27 @@ export function createResearch({ state, execute, library, config, post, personal
                 (saved.nextOffset !== null ? "\n\n" + researchText("RESEARCH_PARTIAL") : ""));
             return "";
         }
-        if (action === "pause") {
+        if (["pause", "cancel"].includes(action)) {
             const paused = await change(id, context, (current) => {
-                if (!activeStatuses.includes(current.status)) throw Error(researchText("RESEARCH_NOT_RUNNING"));
-                current.status = "paused";
+                if (!researchActions(current).includes(action)) {
+                    throw Error(researchText("RESEARCH_ACTION_UNAVAILABLE"));
+                }
+                current.status = current.mode === "canvas" && current.finalReportId ? "completed" :
+                    action === "cancel" ? "cancelled" : "paused";
                 current.canvasBusy = false;
-            });
+                current.stage = "";
+                current.runId = randomUUID();
+                if (action === "cancel") {
+                    current.cancelledAt = Date.now();
+                    current.questions = [];
+                    current.error = "";
+                }
+            }, signal);
             pending.delete(id);
             active.get(id)?.controller.abort();
             await publish(paused);
-            return researchText("RESEARCH_PAUSED");
+            return researchText(job.mode === "canvas" ? "RESEARCH_EXPORT_STOPPED" :
+                action === "cancel" ? "RESEARCH_CANCELLED" : "RESEARCH_PAUSED");
         }
         if (action === "finish") {
             const finishing = await change(id, context, (current) => {
@@ -238,7 +275,7 @@ export function createResearch({ state, execute, library, config, post, personal
                     throw Error(researchText("RESEARCH_NOT_RUNNING"));
                 }
                 current.finishRequested = true;
-            });
+            }, signal);
             await publish(finishing);
             return researchText("RESEARCH_FINISHING");
         }
@@ -265,14 +302,15 @@ export function createResearch({ state, execute, library, config, post, personal
                 const mode = action === "canvas" ? "canvas" : action === "resume" ? current.mode || "run" : "run";
                 Object.assign(current, { mode, runId: randomUUID(),
                     status: mode === "clarify" ? "clarifying" : "queued", error: "",
-                    canvasBusy: mode === "canvas", finishRequested: false, questions: [] });
+                    canvasBusy: mode === "canvas", finishRequested: action === "resume" &&
+                        current.finishRequested === true, questions: [] });
                 if (mode === "run") {
                     current.startedAt ??= Date.now();
                     current.confirmedPlans ??= [];
                     current.confirmedPlans.push({ runId: current.runId, version: current.scopeVersion || 0,
                         title: current.title, brief: current.brief, confirmedAt: Date.now() });
                 }
-            });
+            }, signal);
             schedule(next, next.mode);
             await publish(next);
             return "";
@@ -289,7 +327,7 @@ export function createResearch({ state, execute, library, config, post, personal
                     }
                     const created = proposal(data, { title: current.title, brief: text.trim(), questions: [],
                         parentId: id }, { ...current, ...context, id: undefined, messageTs: context.messageTs ||
-                            current.sourceMessageTs, prompt: text.trim() });
+                            current.sourceMessageTs, prompt: text.trim() }, signal);
                     Object.assign(created, { status: "clarifying", mode: "clarify",
                         stage: researchText("STAGE_PREPARING"), phaseStartedAt: Date.now() });
                     return created;
@@ -317,7 +355,7 @@ export function createResearch({ state, execute, library, config, post, personal
                     proposalTaskId: context.id, proposalMessageTs: context.messageTs,
                     confirmationAfter: now(),
                     phaseStartedAt: Date.now() });
-            });
+            }, signal);
             schedule(next, "clarify");
             await publish(next);
             return "";
@@ -335,15 +373,27 @@ export function createResearch({ state, execute, library, config, post, personal
     }
 
     async function recover() {
-        await state.update((data) => {
+        const recovered = await state.update((data) => {
+            const changed = [];
             for (const job of Object.values(data.researchJobs || {})) {
+                if (job.mode === "canvas" && job.finalReportId &&
+                    [...activeStatuses, ...resumable].includes(job.status)) {
+                    Object.assign(job, { status: "completed", canvasBusy: false, stage: "",
+                        runId: randomUUID(), revision: job.revision + 1,
+                        error: researchText("RESEARCH_EXPORT_STOPPED") });
+                    changed.push(job.id);
+                    continue;
+                }
                 if (!activeStatuses.includes(job.status)) continue;
                 Object.assign(job, { status: "interrupted", canvasBusy: false, revision: job.revision + 1,
                     error: researchText("RESEARCH_INTERRUPTED") });
             }
+            return changed;
         });
         for (const job of Object.values(state.snapshot().researchJobs || {})) {
-            if (job.status === "interrupted") await publish(job).catch(() => {});
+            if (job.status === "interrupted" || recovered.includes(job.id)) {
+                await publish(job).catch(() => {});
+            }
         }
     }
 
@@ -353,7 +403,10 @@ export function createResearch({ state, execute, library, config, post, personal
         await state.update((data) => {
             for (const job of Object.values(data.researchJobs || {})) {
                 if (activeStatuses.includes(job.status)) {
-                    Object.assign(job, { status: "interrupted", canvasBusy: false, revision: job.revision + 1 });
+                    Object.assign(job, {
+                        status: job.mode === "canvas" && job.finalReportId ? "completed" : "interrupted",
+                        canvasBusy: false, stage: "", runId: randomUUID(), revision: job.revision + 1,
+                    });
                 }
             }
         });

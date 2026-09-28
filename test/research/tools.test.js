@@ -32,15 +32,16 @@ test("control dispatch", async () => {
     await registry.call("research_propose", { title: "Followup", brief: "New scope", parentId: id }, context);
     await registry.call("research_propose", { id, revision: 0, title: "Edit", brief: "Scope",
         questions: ["Which device?"] }, context);
-    for (const action of ["start", "resume", "pause", "finish", "canvas"]) {
+    for (const action of ["start", "resume", "pause", "finish", "canvas", "cancel", "refresh"]) {
         await registry.call("research_control", { id, revision: 2, action }, context);
     }
     await registry.call("research_result", { id }, context);
-    assert.deepEqual(calls[0], { name: "inspect", args: [context] });
-    assert.deepEqual(calls[1], { name: "propose", args: [{ title: "Title", brief: "Scope", questions: [] }, context] });
+    assert.deepEqual(calls[0], { name: "inspect", args: [context, { offset: 0, limit: 10 }] });
+    assert.deepEqual(calls[1], { name: "propose",
+        args: [{ title: "Title", brief: "Scope", questions: [] }, context, undefined] });
     assert.equal(calls[2].args[0].parentId, id);
     assert.equal(calls[3].args[0].revision, 0);
-    assert.deepEqual(calls.slice(4, 9).map((call) => call.name), Array(5).fill("act"));
+    assert.deepEqual(calls.slice(4, 11).map((call) => call.name), Array(7).fill("act"));
     assert.deepEqual(calls.at(-1), { name: "readResult", args: [{ id, offset: 0 }, context] });
 });
 
@@ -49,6 +50,9 @@ test("control validation", async () => {
     const plan = { title: "Title", brief: "Scope" };
     const invalid = [
         ["research_status", { id }],
+        ["research_status", { offset: -1 }],
+        ["research_status", { limit: 11 }],
+        ["research_status", { limit: 0 }],
         ["research_propose", { ...plan, title: " " }],
         ["research_propose", { ...plan, title: "x".repeat(151) }],
         ["research_propose", { ...plan, brief: "x".repeat(6001) }],
@@ -79,4 +83,19 @@ test("control cancellation", async () => {
     await assert.rejects(registry.call("research_propose", { title: "Title", brief: "Scope" },
         context, controller.signal), { name: "AbortError" });
     assert.equal(calls.length, 0);
+});
+
+test("signal forwarding", async () => {
+    const { registry, calls } = setup();
+    const signal = new AbortController().signal;
+    await registry.call("research_propose", { title: "Title", brief: "Scope" }, context, signal);
+    await registry.call("research_control", { id, revision: 0, action: "start" }, context, signal);
+    await registry.call("research_control", { id, revision: 0, action: "refresh" }, context, signal);
+    assert.ok(calls.every((call) => call.args[2] === signal));
+});
+
+test("status pagination", async () => {
+    const { registry, calls } = setup();
+    await registry.call("research_status", { offset: 10, limit: 5 }, context);
+    assert.deepEqual(calls[0], { name: "inspect", args: [context, { offset: 10, limit: 5 }] });
 });
