@@ -40,7 +40,7 @@ test("worker context", async (t) => {
     });
     const response = await request("/run", {
         channel: "C1", prompt: "Read this", profile: "scholar", skill: "paper-review", context: "Saved preference",
-        sourceContext: "Canvas reference text",
+        sourceContext: "Canvas reference text", historyContext: "Previous thread reference",
     });
     assert.equal(response.status, 200);
     assert.equal(options.policy.id, "scholar");
@@ -48,6 +48,7 @@ test("worker context", async (t) => {
     assert.ok(options.cwd.endsWith("/inbox"));
     assert.ok(options.prompt.includes("Saved preference"));
     assert.ok(options.prompt.includes("Canvas reference text"));
+    assert.ok(options.prompt.includes("Previous thread reference"));
     assert.ok(options.prompt.includes("limitations"));
 });
 
@@ -56,6 +57,9 @@ test("worker authorization", async (t) => {
     const request = await fixture(t, async () => { called = true; });
     assert.equal((await request("/run", { channel: "C2", prompt: "hi" })).status, 400);
     assert.equal((await request("/run", { channel: "C1", prompt: "hi", skill: "code-review" })).status, 500);
+    assert.equal((await request("/run", {
+        channel: "C1", prompt: "hi", historyContext: "x".repeat(12001),
+    })).status, 400);
     assert.equal(called, false);
 });
 

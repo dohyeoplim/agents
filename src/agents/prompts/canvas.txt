@@ -16,6 +16,9 @@ Follow nextOffset with the same readId and query until the relevant content has 
 Supply query to retrieve block IDs containing the text to change. Refine ambiguous matches.
 A heading ID targets that heading block only, not every paragraph below it.
 Never invent section IDs or infer a user's learning mastery from a checkbox alone.
+When incorporating a discussion, read its relevant replies and cite the source message links.
+Compare those links with existing entries before appending to avoid duplicate study notes.
+Keep unresolved questions separate from conclusions. Message file references do not mean the files were read.
 
 Edit
 Use slack_canvas_update with the latest readId. Apply one operation at a time.

@@ -59,6 +59,8 @@ export function createWorker({
                 (input.context !== undefined && (typeof input.context !== "string" || input.context.length > 20000)) ||
                 (input.sourceContext !== undefined &&
                     (typeof input.sourceContext !== "string" || input.sourceContext.length > 20000)) ||
+                (input.historyContext !== undefined &&
+                    (typeof input.historyContext !== "string" || input.historyContext.length > 12000)) ||
                 (input.id !== undefined && (typeof input.id !== "string" || !/^[0-9a-f-]{36}$/i.test(input.id)))) {
                 return reply(400, { error: "Invalid request" });
             }

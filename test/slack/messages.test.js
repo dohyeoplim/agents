@@ -140,9 +140,11 @@ test("message deduplication", async () => {
     await Promise.all([send("<@BOT> hello"), send("<@BOT> hello")]);
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].prompt, "hello");
+    assert.equal(jobs[0].messageTs, "100.001");
     await send("follow up", { ts: "100.002", thread_ts: "100.001" });
     assert.equal(jobs.length, 2);
     assert.equal(jobs[0].key, jobs[1].key);
+    assert.equal(jobs[1].messageTs, "100.002");
 });
 
 test("command dispatch", async () => {

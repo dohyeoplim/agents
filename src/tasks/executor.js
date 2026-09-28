@@ -6,7 +6,7 @@ import { resourceContext } from "../resources/context.js";
 import { workerResponse } from "./response.js";
 
 export function createTaskExecutor({
-    state, token, resources, streams, toolServer, briefingContext,
+    state, token, resources, streams, toolServer, briefingContext, historyContext,
     config = loadConfig, request = fetch, activity = withSlackActivity,
 }) {
     return async (task, signal) => {
@@ -31,6 +31,8 @@ export function createTaskExecutor({
             }, async () => {
                 if (signal.aborted) throw Error("Task cancelled");
                 const data = state.snapshot();
+                const session = sessionFor(data, task);
+                const history = historyContext ? await historyContext.hydrate(task, session, signal) : { text: "" };
                 const sources = resources && !task.briefingDate ? await resources.collect(task, signal) :
                     { sources: [], notices: [] };
                 const sourceContext = task.briefingDate ? await briefingContext(task, signal) :
@@ -41,9 +43,9 @@ export function createTaskExecutor({
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         id: task.id, channel: task.channel, prompt: task.prompt,
-                        profile: task.profile, skill: task.skill, session: sessionFor(data, task),
+                        profile: task.profile, skill: task.skill, session,
                         context: knowledgeContext(data, task, task.prompt),
-                        sourceContext,
+                        sourceContext, historyContext: history.text,
                         images: sources.images || [], stream: Boolean(streams && !task.scheduleId && !task.briefingDate),
                         toolToken: grant?.token,
                     }),
@@ -54,7 +56,7 @@ export function createTaskExecutor({
                 if (typeof result.answer !== "string" || !/^[0-9a-f-]{36}$/i.test(result.session || "")) {
                     throw Error("Invalid worker response");
                 }
-                return result;
+                return { ...result, historyReceipt: history.receipt };
             });
         } finally {
             grant?.revoke();

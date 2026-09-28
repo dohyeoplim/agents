@@ -7,7 +7,7 @@ export function taskSpec(input, now = Date.now()) {
         id: randomUUID(), team: input.team, user: input.user, channel: input.channel,
         thread: input.thread, key: input.key, profile: input.profile, prompt: input.prompt,
         skill: input.skill, delegated: input.delegated === true, scheduleId: input.scheduleId,
-        fileIds: input.fileIds || [],
+        fileIds: input.fileIds || [], messageTs: input.messageTs,
         briefingDate: input.briefingDate, briefingDue: input.briefingDue,
         status: "queued", delivery: "none", createdAt: now,
     };
@@ -134,6 +134,12 @@ export class TaskRuntime {
                         thread.owner ??= task.user;
                         thread.sessions ??= {};
                         thread.sessions[task.profile + ":" + task.user] = result.session;
+                        if (result.historyReceipt) {
+                            thread.historyContexts ??= {};
+                            thread.historyContexts[task.profile + ":" + task.user] = {
+                                ...result.historyReceipt, session: result.session,
+                            };
+                        }
                         if (!task.delegated && thread.owner === task.user) {
                             thread.session = result.session;
                             thread.profile = task.profile;

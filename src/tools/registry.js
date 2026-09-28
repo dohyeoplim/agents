@@ -2,12 +2,35 @@ import { z } from "zod";
 import { preferenceContext } from "../integrations/settings.js";
 import { paperId } from "../papers/arxiv.js";
 import { createInput, findInput, readInput, bindInput, updateInput } from "../slack/canvas-input.js";
+import { historyInput, searchInput, messageInput } from "../slack/history.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
 
-export function createTools({ personal, weather, calendar, arxiv, library, state, canvases }) {
+export function createTools({ personal, weather, calendar, arxiv, library, state, canvases, history }) {
     const tools = {
+        slack_messages_read: {
+            description: "Read one live page of the current channel or a specified thread. " +
+                "Time bounds are exclusive Unix timestamps with six decimal places. Follow next for more pages. " +
+                "Channel history does not include all replies. Use each root's ts as thread to read replies. " +
+                "Text is bounded; use slack_message_read for truncated messages. Files are references only.",
+            schema: historyInput,
+            run: (args, context, signal) => history.read(args, context, signal),
+        },
+        slack_messages_search: {
+            description: "Search literal text in one live page of the current channel or a specified thread. " +
+                "An empty page is not proof of no matches. Follow next, retain query and time bounds, " +
+                "and read thread replies separately. Report actual search coverage.",
+            schema: searchInput,
+            run: (args, context, signal) => history.search(args, context, signal),
+        },
+        slack_message_read: {
+            description: "Read a specific message in chunks of 6000 characters. For replies supply parent thread. " +
+                "Follow nextOffset as offset and retain revision to detect edits during reading. " +
+                "Use message URLs as sources when updating canvases.",
+            schema: messageInput,
+            run: (args, context, signal) => history.message(args, context, signal),
+        },
         slack_canvas_create: {
             description: "Create a Slack canvas with a title and Markdown body in the current channel's tabs. " +
                 "Use when the user requests a canvas. Channel members receive edit access. Return the URL. " +

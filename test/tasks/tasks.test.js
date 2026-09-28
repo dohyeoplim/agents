@@ -108,3 +108,43 @@ test("unchanged answers", async (t) => {
     assert.equal(delivered.length, 1);
     assert.equal(store.snapshot().tasks[id].delivery, "suppressed");
 });
+
+test("history receipts commit with successful sessions and survive delivery failure", async (t) => {
+    const historyReceipt = { hashes: { "1.000001": "revision" } };
+    const { store, runtime } = await fixture(t, async () => ({ ...result, historyReceipt }));
+    runtime.deliver = async () => { throw Error("Disconnected"); };
+    const id = await runtime.enqueue({ ...input, messageTs: "1.000002" });
+    await runtime.idle();
+    assert.equal(store.snapshot().tasks[id].messageTs, "1.000002");
+    assert.equal(store.snapshot().tasks[id].delivery, "uncertain");
+    assert.deepEqual(store.snapshot().threads[input.key].historyContexts["assistant:U1"], {
+        ...historyReceipt, session: result.session,
+    });
+});
+
+test("failed and cancelled executions never advance history receipts", async (t) => {
+    for (const outcome of ["failed", "cancelled"]) {
+        await t.test(outcome, async (t) => {
+            let started;
+            const ready = new Promise((resolve) => { started = resolve; });
+            const { store, runtime } = await fixture(t, async (task, signal) => {
+                if (outcome === "failed") throw Error("Worker failed");
+                started();
+                await new Promise((resolve) => signal.addEventListener("abort", resolve));
+                return { ...result, historyReceipt: { hashes: { newer: "new" } } };
+            });
+            const previous = { hashes: { older: "old" }, session: result.session };
+            await store.update((data) => {
+                data.threads[input.key] = { historyContexts: { "assistant:U1": previous } };
+            });
+            const id = await runtime.enqueue(input);
+            if (outcome === "cancelled") {
+                await ready;
+                await runtime.cancel(context, id);
+            }
+            await runtime.idle();
+            assert.equal(store.snapshot().tasks[id].status, outcome);
+            assert.deepEqual(store.snapshot().threads[input.key].historyContexts["assistant:U1"], previous);
+        });
+    }
+});

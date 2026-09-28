@@ -14,6 +14,11 @@ test("worker request", async () => {
         state: { snapshot: () => ({ threads: { thread: { session } } }) },
         token: "test",
         resources: { collect: async () => ({ sources: [{ id: "F123456", text: "Source text" }], notices: [] }) },
+        historyContext: { hydrate: async (input, currentSession) => {
+            assert.equal(input.id, task.id);
+            assert.equal(currentSession, session);
+            return { text: "Earlier thread", receipt: { hashes: { "100.0": "revision" } } };
+        } },
         config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
         activity: async (context, run) => run(),
         request: async (url, options) => {
@@ -27,6 +32,8 @@ test("worker request", async () => {
     assert.equal(calls[0].body.session, session);
     assert.equal(calls[0].body.profile, "assistant");
     assert.equal(JSON.parse(calls[0].body.sourceContext).sources[0].text, "Source text");
+    assert.equal(calls[0].body.historyContext, "Earlier thread");
+    assert.deepEqual(result.historyReceipt, { hashes: { "100.0": "revision" } });
 });
 
 test("worker access", async () => {

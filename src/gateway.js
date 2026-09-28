@@ -22,6 +22,8 @@ import { createBriefingContext } from "./briefings/context.js";
 import { createDelivery } from "./briefings/delivery.js";
 import { createCanvases } from "./slack/canvases.js";
 import { createCanvasWorkspace } from "./slack/canvas-workspace.js";
+import { createSlackHistory } from "./slack/history.js";
+import { createHistoryContext } from "./slack/history-context.js";
 
 const config = await loadConfig();
 const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
@@ -60,8 +62,10 @@ const arxiv = createArxiv();
 const library = createLibrary({ arxiv, state });
 const canvasOptions = { token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl: identity.url };
 const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: createCanvases(canvasOptions).create });
+const history = createSlackHistory({ token: process.env.SLACK_BOT_TOKEN, workspaceUrl: identity.url });
+const historyContext = createHistoryContext({ state, history });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
-    arxiv, library, state, canvases });
+    arxiv, library, state, canvases, history });
 const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,
     healthy: async () => !runtime.closed && !runtime.broken && await state.healthy() });
 const briefingContext = createBriefingContext({ tools, personal: loadPersonal });
@@ -69,7 +73,7 @@ const runtime = new TaskRuntime({
     store: state,
     deliver: createDelivery({ state, streams, post, client: app.client, config: loadConfig }),
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources, streams,
-        toolServer, briefingContext }),
+        toolServer, briefingContext, historyContext }),
 });
 const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources });
 const channels = createAutomaticChannels({ client: app.client, team: config.team, bot: identity.user_id,

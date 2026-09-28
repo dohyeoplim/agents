@@ -40,7 +40,7 @@ export function createMessageHandler({
     const events = new SerialQueue();
     const contextFor = (item) => ({
         team: item.team, user: item.user, channel: item.channel, thread: item.thread,
-        key: item.key, profile: item.profile, fileIds: item.fileIds,
+        key: item.key, profile: item.profile, fileIds: item.fileIds, messageTs: item.messageTs,
     });
     const authorizedRoute = (current, item) => {
         const route = current.channels[item.channel];
