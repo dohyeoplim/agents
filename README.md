@@ -8,10 +8,12 @@
 
 - Persistent conversations, memory, scheduled tasks, and daily briefings.
 - Slack message search, Canvas editing, and universal document workflows.
+- Deep research with independent Codex and Claude reports, Slack controls, and Canvas export.
 
 #### Integrations
 
 - OpenAI Codex
+- Claude Code
 - Slack API
 - Notion MCP
 - Google Calendar API
@@ -41,6 +43,7 @@ docker compose build --pull --no-cache
 #### Authentication
 
 - Codex: `docker compose run --rm assistant codex login --device-auth`
+- Claude: `docker compose run --rm assistant claude auth login`
 - Notion: `docker compose run --rm assistant npm run integrations -- notion-login`
 
 #### Optional integrations
