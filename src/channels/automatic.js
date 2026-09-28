@@ -36,7 +36,7 @@ export function createAutomaticChannels({ client, team, bot, file, config = load
             ? channel.name : channel.id.toLowerCase();
         saved.channels[channel.id] ||= {
             name, agent: "assistant", cwd: channel.id.toLowerCase(), enabled: true,
-            instructions: channelRoles[name] || "Help the user with this channel's work.",
+            instructions: channelRoles[name] || channelRoles.default,
         };
         validate({ ...current, channels: saved.channels });
         const temporary = `${file}.tmp`;

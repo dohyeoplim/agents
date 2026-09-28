@@ -1,18 +1,8 @@
 import { validate } from "./config.js";
+import { readFile } from "node:fs/promises";
 
-export const channelRoles = {
-    daily: "Help review the day and plan priorities. Do not claim scheduled delivery is configured.",
-    inbox: "Help with general requests and organize incoming tasks.",
-    schedule: "Help plan schedules. Do not claim reminders are scheduled without an actual scheduling tool.",
-    research: "Research questions carefully. Distinguish verified sources from assumptions.",
-    writing: "Help draft and edit writing while preserving the user's intended meaning and voice.",
-    coursework: "Help with coursework, explain concepts, and organize assignments.",
-    reading: "Help analyze reading material and maintain useful reading notes with sources.",
-    ideas: "Help develop ideas, examine tradeoffs, and record concrete next steps.",
-    life: "Help organize personal tasks and everyday planning.",
-    lab: "Help with coding and experiments. Verify changes and report actual limitations.",
-    logs: "Help inspect logs and diagnose failures. Never reveal credentials.",
-};
+export const channelRoles = JSON.parse(await readFile(
+    new URL("../agents/prompts/channel-roles.json", import.meta.url), "utf8"));
 
 export function registerChannel(config, id, name) {
     if (typeof name !== "string" || !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(name)) {
@@ -30,7 +20,7 @@ export function registerChannel(config, id, name) {
             enabled: true,
             agent: "assistant",
             cwd: name,
-            instructions: channelRoles[name] || "Help the user with this channel's work.",
+            instructions: channelRoles[name] || channelRoles.default,
         };
     return validate({ ...config, channels: { ...config.channels, [id]: route } });
 }
