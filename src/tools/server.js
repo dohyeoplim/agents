@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-export function createToolServer({ tools, state, config, personal, now = Date.now }) {
+export function createToolServer({ tools, state, config, personal, healthy, now = Date.now }) {
     const grants = new Map();
     const grant = (task, signal) => {
         const token = randomBytes(32).toString("base64url");
@@ -13,6 +13,10 @@ export function createToolServer({ tools, state, config, personal, now = Date.no
     };
     const server = http.createServer(async (req, res) => {
         const reject = (status) => { res.writeHead(status); res.end(); };
+        if (req.url === "/health" && req.method === "GET" && !req.headers.origin && healthy) {
+            try { return reject(await healthy() ? 200 : 503); }
+            catch { return reject(503); }
+        }
         if (req.url !== "/mcp" || req.method !== "POST" || req.headers.origin) return reject(404);
         const token = req.headers.authorization?.replace(/^Bearer /, "");
         const access = grants.get(token);

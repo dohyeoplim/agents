@@ -1,4 +1,19 @@
 services:
+  database:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: agents
+      POSTGRES_USER: agents
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+    networks: [bridge]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U agents -d agents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   gateway:
     build:
       context: .
@@ -6,12 +21,18 @@ services:
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?Set SLACK_BOT_TOKEN}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:?Set SLACK_APP_TOKEN}
+      PGHOST: database
+      PGDATABASE: agents
+      PGUSER: agents
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - ./config:/config:ro
       - ./data/gateway:/state
       - ./data/secrets:/run/secrets:ro
     networks: [bridge, internet]
     depends_on:
+      database:
+        condition: service_healthy
       assistant:
         condition: service_healthy
     init: true
@@ -23,6 +44,17 @@ services:
     mem_limit: 512m
     restart: unless-stopped
     stop_grace_period: 11m
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
   assistant:
     build:
       context: .
@@ -60,3 +92,5 @@ networks:
   bridge:
     internal: true
   internet: {}
+volumes:
+  database:

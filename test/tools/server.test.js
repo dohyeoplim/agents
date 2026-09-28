@@ -4,6 +4,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createToolServer } from "../../src/tools/server.js";
 
+test("gateway readiness", async (t) => {
+    let ready = true;
+    const bridge = createToolServer({ healthy: async () => ready });
+    await new Promise((resolve) => bridge.server.listen(0, "127.0.0.1", resolve));
+    t.after(async () => {
+        bridge.server.closeAllConnections();
+        await new Promise((resolve) => bridge.server.close(resolve));
+    });
+    const url = `http://127.0.0.1:${bridge.server.address().port}/health`;
+    assert.equal((await fetch(url)).status, 200);
+    ready = false;
+    assert.equal((await fetch(url)).status, 503);
+    assert.equal((await fetch(url, { method: "POST" })).status, 404);
+});
+
 test("tool authorization", async (t) => {
     const data = { tasks: { task: { status: "running" } } };
     let now = 0;

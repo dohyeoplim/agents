@@ -1,6 +1,7 @@
 import bolt from "@slack/bolt";
 import { loadConfig } from "./channels/config.js";
-import { PersistentState } from "./shared/state.js";
+import { PostgresState } from "./storage/postgres.js";
+import { createArtifactStore } from "./storage/artifacts.js";
 import { TaskRuntime } from "./tasks/runtime.js";
 import { createTaskExecutor } from "./tasks/executor.js";
 import { createMessageSender, createMessageHandler } from "./slack/messages.js";
@@ -20,9 +21,7 @@ import { createBriefingContext } from "./briefings/context.js";
 import { createDelivery } from "./briefings/delivery.js";
 
 const config = await loadConfig();
-const state = await new PersistentState("/state/conversations.json", {
-    threads: {}, events: {}, tasks: {}, entries: {}, schedules: {},
-}).load();
+const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
 const quietLogger = {
     debug() {},
     info() {},
@@ -44,13 +43,22 @@ if (identity.team_id !== config.team) throw Error("Slack workspace mismatch");
 
 const post = createMessageSender(app.client);
 const titles = createThreadTitles({ state, token: process.env.SLACK_BOT_TOKEN });
-const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN });
+const files = createArtifactStore({ directory: "/state/artifacts" });
+const artifacts = {
+    async put(data, options) {
+        const artifact = await files.put(data, options);
+        await state.update((draft) => { draft.artifacts[artifact.id] = artifact; });
+        return artifact;
+    },
+};
+const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN, artifacts });
 const streams = createSlackStreams({ state, token: process.env.SLACK_BOT_TOKEN, post });
 const arxiv = createArxiv();
 const library = createLibrary({ arxiv, state });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
     arxiv, library, state });
-const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal });
+const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,
+    healthy: async () => !runtime.closed && !runtime.broken && await state.healthy() });
 const briefingContext = createBriefingContext({ tools, personal: loadPersonal });
 const runtime = new TaskRuntime({
     store: state,
@@ -65,11 +73,14 @@ app.event("message", messages.handle);
 app.event("agent_session_title_changed", titles.changed);
 app.error(async () => console.error("Slack event failed"));
 await runtime.recover();
+runtime.closed = true;
 await new Promise((resolve, reject) => {
     toolServer.server.once("error", reject);
     toolServer.server.listen(8081, "0.0.0.0", resolve);
 });
 await app.start();
+await messages.recover();
+runtime.closed = false;
 runtime.wake();
 console.log("Slack bridge ready");
 const stopScheduler = startScheduler({ state, runtime });
@@ -84,7 +95,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         runtime.closed = true;
         await runtime.idle();
         await new Promise((resolve) => toolServer.server.close(resolve));
-        await state.tail;
+        await state.close();
         process.exit(0);
     });
 }
