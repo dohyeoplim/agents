@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createTools } from "../../src/tools/registry.js";
 
-test("history tools preserve task scope and validate arguments before reading Slack", async () => {
+test("history tool validation", async () => {
     const calls = [];
     const history = Object.fromEntries(["read", "search", "message"].map((method) => [method,
         async (...args) => { calls.push({ method, args }); return { messages: [] }; }]));

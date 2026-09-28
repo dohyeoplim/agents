@@ -50,7 +50,7 @@ const revokedRoutes = {
     agent: (current) => { current.channels.C1.agent = "replacement"; },
 };
 
-test("pending requests are rejected after authorization or route changes", async (test) => {
+test("pending request authorization", async (test) => {
     for (const [name, revoke] of Object.entries(revokedRoutes)) {
         await test.test(name, async () => {
             let unavailable = true;
@@ -68,7 +68,7 @@ test("pending requests are rejected after authorization or route changes", async
     }
 });
 
-test("pending responses are suppressed after authorization or route changes", async (test) => {
+test("pending response authorization", async (test) => {
     for (const [name, revoke] of Object.entries(revokedRoutes)) {
         await test.test(name, async () => {
             let unavailable = true;
@@ -88,7 +88,7 @@ test("pending responses are suppressed after authorization or route changes", as
     }
 });
 
-test("accepted messages survive a failed task transaction and recover once", async () => {
+test("message recovery", async () => {
     let unavailable = true;
     const { data, jobs, send, handler } = fixture({ beforeCommit: (draft) => {
         if (unavailable && Object.keys(draft.tasks).length) throw Error("Storage unavailable");
@@ -107,7 +107,7 @@ test("accepted messages survive a failed task transaction and recover once", asy
     assert.ok(data.events["C1:100.001"]);
 });
 
-test("recovery does not repeat an interrupted mutating command", async () => {
+test("interrupted commands", async () => {
     let unavailable = true;
     const { data, send, handler, replies } = fixture({ beforeCommit: (draft) => {
         if (unavailable && draft.inbox?.["C1:100.001"]?.status === "processed") {
@@ -125,7 +125,7 @@ test("recovery does not repeat an interrupted mutating command", async () => {
     assert.match(replies[0].text, /Check its result/);
 });
 
-test("command delivery failure preserves its outcome without repeating the mutation", async () => {
+test("command redelivery", async () => {
     const { data, send, handler } = fixture({ postReply: () => { throw Error("Slack unavailable"); } });
     await send("<@BOT> !remember shared Keep answers short");
     await handler.recover();

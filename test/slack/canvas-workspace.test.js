@@ -59,7 +59,7 @@ async function fixture(t) {
         creations: () => creations };
 }
 
-test("purpose bindings survive reload and another task reuses the existing Canvas", async (t) => {
+test("binding persistence", async (t) => {
     const f = await fixture(t);
     await f.api.bind({ canvasId, purpose: "study" }, context);
     const next = { ...context, id: "task2", thread: "2.0" };
@@ -71,7 +71,7 @@ test("purpose bindings survive reload and another task reuses the existing Canva
     assert.equal(f.creations(), 0);
 });
 
-test("creation with a purpose binds once and requires explicit replacement of that binding", async (t) => {
+test("binding replacement", async (t) => {
     const f = await fixture(t);
     const args = { title: "Study", markdown: "Lesson", purpose: "study" };
     const created = await f.api.create(args, context);
@@ -84,7 +84,7 @@ test("creation with a purpose binds once and requires explicit replacement of th
     assert.equal((await f.api.create(args, context)).canvasId, canvasId);
 });
 
-test("discovery validates channel access and refuses unauthorized task contexts", async (t) => {
+test("discovery authorization", async (t) => {
     const f = await fixture(t);
     f.files.set(otherId, { id: otherId, title: "Private notes", filetype: "canvas", channels: ["C2"] });
     const result = await f.api.find({}, context);
@@ -97,7 +97,7 @@ test("discovery validates channel access and refuses unauthorized task contexts"
     assert.equal(f.reads.length, 0);
 });
 
-test("read pagination checks revisions and always requests fresh Canvas data", async (t) => {
+test("read pagination", async (t) => {
     const f = await fixture(t);
     f.document.text = "a".repeat(12000) + "Tail";
     const first = await f.read();
@@ -111,7 +111,7 @@ test("read pagination checks revisions and always requests fresh Canvas data", a
     await assert.rejects(f.read({ offset: first.nextOffset, readId: first.readId }), /changed while paging/);
 });
 
-test("updates map append, section replacement, rename and deletion to Slack changes", async (t) => {
+test("Canvas updates", async (t) => {
     const f = await fixture(t);
     const cases = [
         [{ operation: "insert_at_end", markdown: "Extra" },
@@ -134,7 +134,7 @@ test("updates map append, section replacement, rename and deletion to Slack chan
     }
 });
 
-test("stale revisions and unknown sections never issue edit requests", async (t) => {
+test("edit validation", async (t) => {
     const f = await fixture(t);
     const before = await f.read();
     f.document.revision = "concurrent-edit";
@@ -150,7 +150,7 @@ test("stale revisions and unknown sections never issue edit requests", async (t)
     assert.deepEqual(f.state.snapshot().canvasChanges || {}, {});
 });
 
-test("truncated documents block destructive edits while allowing append", async (t) => {
+test("truncated edits", async (t) => {
     const f = await fixture(t);
     f.document.truncated = true;
     const before = await f.read();
@@ -164,7 +164,7 @@ test("truncated documents block destructive edits while allowing append", async 
     assert.equal(result.status, "applied");
 });
 
-test("uncertain edits block retries until a newer read explicitly resolves the change", async (t) => {
+test("uncertain edits", async (t) => {
     const f = await fixture(t);
     const before = await f.read();
     f.controls.editError = true;
@@ -183,7 +183,7 @@ test("uncertain edits block retries until a newer read explicitly resolves the c
     assert.equal(f.edits().length, 1);
 });
 
-test("successful edits retain their receipt when readback fails and are not repeated", async (t) => {
+test("readback failure", async (t) => {
     const f = await fixture(t);
     const before = await f.read();
     f.controls.readbackError = true;
@@ -197,7 +197,7 @@ test("successful edits retain their receipt when readback fails and are not repe
     assert.equal(f.edits().length, 1);
 });
 
-test("duplicate successful operations reuse the persisted receipt after reload", async (t) => {
+test("operation deduplication", async (t) => {
     const f = await fixture(t);
     const before = await f.read();
     const input = { readId: before.readId, operation: "insert_at_end", markdown: "Extra" };
@@ -207,7 +207,7 @@ test("duplicate successful operations reuse the persisted receipt after reload",
     assert.equal(f.edits().length, 1);
 });
 
-test("ambiguous section matches block targeted edits even when the requested section exists", async (t) => {
+test("ambiguous sections", async (t) => {
     const f = await fixture(t);
     f.controls.sections.push({ id: "section2" });
     const before = await f.read();
@@ -216,7 +216,7 @@ test("ambiguous section matches block targeted edits even when the requested sec
     assert.equal(f.edits().length, 0);
 });
 
-test("an intentional edit from a new task applies again after the document returns to its original revision", async (t) => {
+test("intentional repeated edits", async (t) => {
     const f = await fixture(t);
     const before = await f.read();
     const operation = { operation: "insert_at_end", markdown: "Extra" };
@@ -232,7 +232,7 @@ test("an intentional edit from a new task applies again after the document retur
     assert.equal(second.status, "applied");
 });
 
-test("uncertain creation survives task changes and discovery allows binding the actual Canvas", async (t) => {
+test("uncertain creation", async (t) => {
     const f = await fixture(t);
     const changeId = "a".repeat(64);
     await f.state.update((draft) => {
@@ -257,7 +257,7 @@ test("uncertain creation survives task changes and discovery allows binding the 
     assert.equal(f.creations(), 0);
 });
 
-test("resolution without a read only allows absent Canvas creation to be marked not applied", async (t) => {
+test("creation resolution", async (t) => {
     const f = await fixture(t);
     const createId = "a".repeat(64);
     const editId = "b".repeat(64);
@@ -281,7 +281,7 @@ test("resolution without a read only allows absent Canvas creation to be marked 
     assert.equal(f.edits().length, 0);
 });
 
-test("confirmed absent creation can retry through the original adapter in the same task", async (t) => {
+test("creation retry", async (t) => {
     const f = await fixture(t);
     let calls = 0;
     const creator = createCanvases({ token: "test", state: f.state, workspaceUrl: "https://example.slack.com",
@@ -303,7 +303,7 @@ test("confirmed absent creation can retry through the original adapter in the sa
     assert.equal(f.state.snapshot().canvasChanges[changeId].history[0].resolution, "not_applied");
 });
 
-test("simultaneous creation for the same purpose permits only one Slack creation", async (t) => {
+test("concurrent creation", async (t) => {
     const f = await fixture(t);
     let release;
     f.controls.createWait = new Promise((resolve) => { release = resolve; });

@@ -21,7 +21,7 @@ function fixture(messages = [message], extra = {}) {
     return { service, calls, commit, messages };
 }
 
-test("thread hydration is bounded by the queued trigger and deduplicates only the same session", async () => {
+test("thread hydration", async () => {
     const { service, calls, commit } = fixture([
         message, { ...message, ts: task.messageTs, text: "Current trigger" },
         { ...message, ts: "100.000004", text: "Later request" },
@@ -36,7 +36,7 @@ test("thread hydration is bounded by the queued trigger and deduplicates only th
     assert.match((await service.hydrate(task, undefined)).text, /Original discussion/);
 });
 
-test("edited messages are rehydrated and unrelated users do not share receipts", async () => {
+test("receipt isolation", async () => {
     const { service, commit, messages } = fixture();
     commit((await service.hydrate(task, "session1")).receipt);
     messages[0] = { ...message, text: "Corrected discussion" };
@@ -47,7 +47,7 @@ test("edited messages are rehydrated and unrelated users do not share receipts",
     assert.equal(other.messages[0].changed, false);
 });
 
-test("long threads expose continuation and retain receipts only for included messages", async () => {
+test("hydration limits", async () => {
     const messages = Array.from({ length: 30 }, (_, index) => ({
         ...message, ts: `99.${String(index).padStart(6, "0")}`, text: "content".repeat(1000),
     }));
@@ -71,7 +71,7 @@ test("long threads expose continuation and retain receipts only for included mes
     assert.ok(next.messages.every((entry) => !initial.receipt.hashes[entry.ts]));
 });
 
-test("root messages and isolated scheduled runs do not fetch thread history", async () => {
+test("history exclusions", async () => {
     const { service, calls } = fixture();
     for (const input of [
         { ...task, messageTs: task.thread }, { ...task, messageTs: undefined },
@@ -80,7 +80,7 @@ test("root messages and isolated scheduled runs do not fetch thread history", as
     assert.equal(calls.length, 0);
 });
 
-test("unavailable history is disclosed and cancellation propagates", async () => {
+test("history failures", async () => {
     const service = createHistoryContext({ state: { snapshot: () => ({}) },
         history: { read: async () => { throw Error("secret"); } } });
     const result = await service.hydrate(task, undefined);
@@ -90,7 +90,7 @@ test("unavailable history is disclosed and cancellation propagates", async () =>
     await assert.rejects(service.hydrate(task, undefined, AbortSignal.abort()), /cancelled/);
 });
 
-test("long threads continue beyond the opening page and advance only to included messages", async () => {
+test("hydration continuation", async () => {
     const data = { threads: { thread: {} } };
     const calls = [];
     const service = createHistoryContext({ state: { snapshot: () => data }, history: {
@@ -114,7 +114,7 @@ test("long threads continue beyond the opening page and advance only to included
     assert.match(second.text, /Live data/);
 });
 
-test("edits beyond an excerpt are detected using the full message revision", async () => {
+test("excerpt revisions", async () => {
     const { service, commit, messages } = fixture([{ ...message, truncated: true, revision: "original" }]);
     commit((await service.hydrate(task, "session1")).receipt);
     messages[0] = { ...messages[0], revision: "edited-tail" };
@@ -122,7 +122,7 @@ test("edits beyond an excerpt are detected using the full message revision", asy
     assert.equal(updated.messages[0].changed, true);
 });
 
-test("long-running threads retain opening hashes so repeated roots cannot starve new replies", async () => {
+test("reply progression", async () => {
     const data = { threads: { thread: {} } };
     let end = 0;
     const service = createHistoryContext({ state: { snapshot: () => data }, history: {

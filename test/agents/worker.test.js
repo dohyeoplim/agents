@@ -112,7 +112,7 @@ test("worker authorization", async (t) => {
     assert.equal(called, false);
 });
 
-test("worker validates and forwards explicit Notion access", async (t) => {
+test("worker Notion access", async (t) => {
     const values = [];
     const request = await fixture(t, async (input) => {
         values.push(input.notionAccess);

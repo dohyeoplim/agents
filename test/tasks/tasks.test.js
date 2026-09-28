@@ -125,7 +125,7 @@ test("unchanged answers", async (t) => {
     assert.equal(store.snapshot().tasks[id].delivery, "suppressed");
 });
 
-test("history receipts commit with successful sessions and survive delivery failure", async (t) => {
+test("history receipt commit", async (t) => {
     const historyReceipt = { hashes: { "1.000001": "revision" } };
     const { store, runtime } = await fixture(t, async () => ({ ...result, historyReceipt }));
     runtime.deliver = async () => { throw Error("Disconnected"); };
@@ -138,7 +138,7 @@ test("history receipts commit with successful sessions and survive delivery fail
     });
 });
 
-test("failed and cancelled executions never advance history receipts", async (t) => {
+test("history receipt rollback", async (t) => {
     for (const outcome of ["failed", "cancelled"]) {
         await t.test(outcome, async (t) => {
             let started;

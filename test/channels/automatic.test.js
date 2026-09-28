@@ -39,7 +39,7 @@ async function fixture(t) {
     return { root, file, manual, base, config, joined, errors, available, client, automatic };
 }
 
-test("scan joins public channels and persists routes shared with the worker", async (t) => {
+test("channel scanning", async (t) => {
     const f = await fixture(t);
     await f.automatic.sync();
     assert.deepEqual(f.joined, ["C2"]);
@@ -57,7 +57,7 @@ test("scan joins public channels and persists routes shared with the worker", as
     assert.deepEqual(f.errors, []);
 });
 
-test("creation and own membership events register channels and ignore foreign events", async (t) => {
+test("channel events", async (t) => {
     const f = await fixture(t);
     const event = { type: "channel_created", channel: { id: "C2" } };
     await f.automatic.handle({ body: { team_id: "T2" }, event });
@@ -77,7 +77,7 @@ test("creation and own membership events register channels and ignore foreign ev
     assert.deepEqual(f.joined, ["C2"]);
 });
 
-test("failed joins are retried and do not prevent registration of other channels", async (t) => {
+test("join retries", async (t) => {
     const f = await fixture(t);
     const join = f.client.conversations.join;
     f.client.conversations.join = async () => { throw Error("missing_scope"); };
@@ -92,7 +92,7 @@ test("failed joins are retried and do not prevent registration of other channels
     await assert.rejects(f.config(), /workspace mismatch/);
 });
 
-test("manual overrides take precedence and corrupt automatic state is rejected", async (t) => {
+test("route overrides", async (t) => {
     const f = await fixture(t);
     await f.automatic.sync();
     await writeFile(f.manual, JSON.stringify({ ...f.base, channels: {
@@ -105,7 +105,7 @@ test("manual overrides take precedence and corrupt automatic state is rejected",
     await assert.rejects(f.config(), SyntaxError);
 });
 
-test("new workspaces are created while symlink escapes are rejected before nested writes", async (t) => {
+test("workspace confinement", async (t) => {
     const f = await fixture(t);
     const workspace = path.join(f.root, "workspace");
     const outside = path.join(f.root, "outside");

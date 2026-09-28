@@ -13,7 +13,7 @@ async function fixture(t) {
     return { directory, store: createArtifactStore({ directory }) };
 }
 
-test("artifact publication preserves bytes and metadata across store instances", async (t) => {
+test("artifact persistence", async (t) => {
     const { directory, store } = await fixture(t);
     const data = Buffer.from([0, 255, 42, 10]);
     const result = await store.put(data, { mime: "application/pdf", source });
@@ -26,7 +26,7 @@ test("artifact publication preserves bytes and metadata across store instances",
     }), result);
 });
 
-test("concurrent duplicate writes share an immutable blob without partial files", async (t) => {
+test("concurrent writes", async (t) => {
     const { directory, store } = await fixture(t);
     const results = await Promise.all(Array.from({ length: 12 }, () => store.put("paper", {
         mime: "text/plain", source,
@@ -39,7 +39,7 @@ test("concurrent duplicate writes share an immutable blob without partial files"
     assert.equal((await readdir(join(directory, "manifests"))).length, 2);
 });
 
-test("source changes retain prior versions and cannot choose storage paths", async (t) => {
+test("artifact versions", async (t) => {
     const { directory, store } = await fixture(t);
     const first = await store.put("first", { mime: "text/plain", source });
     const second = await store.put("second", {
@@ -54,7 +54,7 @@ test("source changes retain prior versions and cannot choose storage paths", asy
     await assert.rejects(store.put("x", { mime: "text/plain", source: {} }), /Invalid artifact source/);
 });
 
-test("existing damaged blobs are rejected without being overwritten", async (t) => {
+test("damaged blobs", async (t) => {
     const { directory, store } = await fixture(t);
     const result = await store.put("first", { mime: "text/plain", source });
     await writeFile(join(directory, result.path), "damage");

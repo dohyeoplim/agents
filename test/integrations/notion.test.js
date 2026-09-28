@@ -13,7 +13,7 @@ async function fixture(t) {
     return { root, home };
 }
 
-test("Notion login stores OAuth in the persistent worker home and enables only after success", async (t) => {
+test("Notion login", async (t) => {
     const { root, home } = await fixture(t);
     await writeFile(path.join(root, "auth.json"), "existing Codex login");
     assert.equal(await notionEnabled(home), false);
@@ -35,7 +35,7 @@ test("Notion login stores OAuth in the persistent worker home and enables only a
     assert.equal((await stat(path.join(home, "notion.json"))).mode & 0o777, 0o600);
 });
 
-test("failed login and logout leave Notion disabled without deleting Codex sessions", async (t) => {
+test("Notion disconnection", async (t) => {
     const { root, home } = await fixture(t);
     const success = async () => {};
     await configureNotion("login", { root, run: success });
@@ -50,7 +50,7 @@ test("failed login and logout leave Notion disabled without deleting Codex sessi
     assert.ok((await stat(path.join(home, "sessions"))).isDirectory());
 });
 
-test("Notion status is local, exposes no credentials and does not claim verified access", async (t) => {
+test("Notion status", async (t) => {
     const { root, home } = await fixture(t);
     await writeFile(path.join(home, ".credentials.json"), "private-token");
     const status = await configureNotion("status", { root, run: () => assert.fail("Unexpected login") });

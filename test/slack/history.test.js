@@ -20,7 +20,7 @@ function setup(pages) {
     return { history, calls, tools: createTools({ history }) };
 }
 
-test("history tools confine reads to the task channel and reject invalid arguments before I/O", async () => {
+test("history validation", async () => {
     const f = setup([{ messages: [item(1)] }]);
     for (const [name, args] of [
         ["slack_messages_read", { channel: "C2" }],
@@ -43,7 +43,7 @@ test("history tools confine reads to the task channel and reject invalid argumen
     }
 });
 
-test("channel pages retain time bounds and follow Slack cursors", async () => {
+test("cursor pagination", async () => {
     const f = setup([{ messages: [item(5), item(4)], response_metadata: { next_cursor: "page-two" } },
         { messages: [item(3)] }]);
     const first = await f.history.read({ oldest: ts(1), latest: ts(6), limit: 2 }, context);
@@ -56,7 +56,7 @@ test("channel pages retain time bounds and follow Slack cursors", async () => {
     assert.equal(second.next, null);
 });
 
-test("timestamp pagination advances channel latest and thread oldest without repeating boundary messages", async () => {
+test("timestamp pagination", async () => {
     const f = setup([{ messages: [item(5), item(4)], has_more: true },
         { messages: [item(2), item(3)], has_more: true }]);
     const channel = await f.history.read({ oldest: ts(1), latest: ts(6) }, context);
@@ -70,7 +70,7 @@ test("timestamp pagination advances channel latest and thread oldest without rep
     assert.equal(f.calls[1].url.searchParams.get("ts"), ts(1));
 });
 
-test("history excludes time boundaries, later messages and deleted messages even if Slack returns them", async () => {
+test("message filtering", async () => {
     const f = setup([{ messages: [item(1), item(2), item(3, "deleted", { subtype: "message_deleted" }),
         item(4), item(5)] }]);
     const result = await f.history.read({ oldest: ts(1), latest: ts(4) }, context);
@@ -79,7 +79,7 @@ test("history excludes time boundaries, later messages and deleted messages even
     assert.equal(f.calls[0].url.searchParams.get("inclusive"), "false");
 });
 
-test("an empty search page preserves continuation and query for subsequent matches", async () => {
+test("empty search pages", async () => {
     const f = setup([{ messages: [item(4, "Unrelated discussion")], has_more: true,
         response_metadata: { next_cursor: "older" } }, { messages: [item(2, "Bayes THEOREM exercise")] }]);
     const first = await f.history.search({ query: "theorem", oldest: ts(1), latest: ts(5) }, context);
@@ -94,7 +94,7 @@ test("an empty search page preserves continuation and query for subsequent match
     assert.match(second.match, /literal/i);
 });
 
-test("thread search returns literal matches and links back to their parent thread", async () => {
+test("thread search", async () => {
     const f = setup([{ messages: [item(1, "Root"), item(2, "Solve a+b", { thread_ts: ts(1) }),
         item(3, "Solve aaab", { thread_ts: ts(1) })] }]);
     const result = await f.history.search({ query: "A+B", thread: ts(1) }, context);
@@ -106,7 +106,7 @@ test("thread search returns literal matches and links back to their parent threa
     assert.match(result.coverage, /this thread only/);
 });
 
-test("missing continuation is reported explicitly when Slack claims more results", async () => {
+test("missing continuation", async () => {
     const f = setup([{ messages: [], has_more: true }]);
     const result = await f.history.read({}, context);
     assert.equal(result.hasMore, true);
@@ -114,7 +114,7 @@ test("missing continuation is reported explicitly when Slack claims more results
     assert.match(result.notice, /without a continuation/);
 });
 
-test("bounded history exposes truncation and specific-message reads recover the full text in chunks", async () => {
+test("message chunks", async () => {
     const text = "Study ".repeat(2200);
     const f = setup(Array.from({ length: 4 }, () => ({ messages: [item(2, text, { thread_ts: ts(1) })] })));
     const page = await f.history.read({ thread: ts(1) }, context);
@@ -134,7 +134,7 @@ test("bounded history exposes truncation and specific-message reads recover the 
     assert.equal(f.calls[1].url.searchParams.get("latest"), ts(2));
 });
 
-test("message continuation rejects revisions changed between reads", async () => {
+test("stale continuation", async () => {
     const f = setup([{ messages: [item(2, "a".repeat(7000))] },
         { messages: [item(2, "b".repeat(7000), { edited: { ts: ts(3) } })] }]);
     const first = await f.history.message({ ts: ts(2) }, context);
@@ -142,7 +142,7 @@ test("message continuation rejects revisions changed between reads", async () =>
         revision: first.revision }, context), /Message changed/);
 });
 
-test("content changes without Slack edit metadata still invalidate a message continuation", async () => {
+test("unmarked revisions", async () => {
     const f = setup([{ messages: [item(2, "a".repeat(7000))] },
         { messages: [item(2, "b".repeat(7000))] }]);
     const first = await f.history.message({ ts: ts(2) }, context);
@@ -150,7 +150,7 @@ test("content changes without Slack edit metadata still invalidate a message con
         revision: first.revision }, context), /Message changed/);
 });
 
-test("search snippets show matches beyond the first chunk and disclose the omitted prefix", async () => {
+test("search snippets", async () => {
     const text = "x".repeat(5000) + "Bayes theorem";
     const f = setup([{ messages: [item(2, text)] }]);
     const result = await f.history.search({ query: "bayes" }, context);
@@ -160,7 +160,7 @@ test("search snippets show matches beyond the first chunk and disclose the omitt
     assert.equal(result.messages[0].textLength, text.length);
 });
 
-test("repeated cursors cannot create a nonadvancing continuation loop", async () => {
+test("repeated cursors", async () => {
     const f = setup([{ messages: [item(4)], has_more: true, response_metadata: { next_cursor: "stuck" } },
         { messages: [item(4)], has_more: true }]);
     const first = await f.history.read({ cursor: "stuck", latest: ts(5) }, context);
@@ -171,7 +171,7 @@ test("repeated cursors cannot create a nonadvancing continuation loop", async ()
     assert.match(second.notice, /without a continuation/);
 });
 
-test("time bounds retain microsecond precision for long supported timestamps", async () => {
+test("timestamp precision", async () => {
     const oldest = "1000000000000000.000001";
     const middle = "1000000000000000.000002";
     const latest = "1000000000000000.000003";
@@ -181,20 +181,20 @@ test("time bounds retain microsecond precision for long supported timestamps", a
     assert.deepEqual(result.messages.map((entry) => entry.ts), [middle]);
 });
 
-test("deleted or missing specific messages do not fall back to an unrelated message", async () => {
+test("missing messages", async () => {
     const f = setup([{ messages: [item(3)] }, { messages: [item(2, "gone", { subtype: "message_deleted" })] }]);
     await assert.rejects(f.history.message({ ts: ts(2) }, context), /unavailable/);
     await assert.rejects(f.history.message({ ts: ts(2) }, context), /unavailable/);
 });
 
-test("file references never imply file contents were read", async () => {
+test("file references", async () => {
     const f = setup([{ messages: [item(2, "", { files: [{ id: "F1", title: "Course notes" }] })] }]);
     const result = await f.history.read({}, context);
     assert.deepEqual(result.messages[0].files, [{ id: "F1", title: "Course notes" }]);
     assert.match(result.messages[0].notice, /contents.*not been read/);
 });
 
-test("Slack permission and expired-cursor errors remain explicit", async () => {
+test("Slack errors", async () => {
     for (const [error, expected] of [["missing_scope", /Reinstall/], ["not_in_channel", /join this channel/],
         ["not_allowed_token_type", /token type/], ["invalid_cursor", /expired/]]) {
         const f = setup([Response.json({ ok: false, error })]);
@@ -202,14 +202,14 @@ test("Slack permission and expired-cursor errors remain explicit", async () => {
     }
 });
 
-test("rate limits block follow-up requests rather than retrying immediately", async () => {
+test("rate limits", async () => {
     const f = setup([new Response("limited", { status: 429, headers: { "retry-after": "60" } })]);
     await assert.rejects(f.history.read({}, context), /rate limited/);
     await assert.rejects(f.history.search({ query: "test" }, context), /rate limited/);
     assert.equal(f.calls.length, 1);
 });
 
-test("malformed Slack responses and HTTP failures never appear as an empty successful search", async () => {
+test("invalid responses", async () => {
     for (const page of [Response.json({ ok: true }), Response.json({ ok: true, messages: [{ ts: "bad" }] }),
         new Response("unavailable", { status: 503 }), Response.json(null)]) {
         const f = setup([page]);
@@ -217,7 +217,7 @@ test("malformed Slack responses and HTTP failures never appear as an empty succe
     }
 });
 
-test("aborted tool calls stop before Slack I/O and direct calls propagate cancellation", async () => {
+test("history cancellation", async () => {
     const f = setup([{ messages: [] }]);
     const signal = AbortSignal.abort(new Error("Task cancelled"));
     await assert.rejects(f.tools.call("slack_messages_read", {}, context, signal), /Task cancelled/);

@@ -92,7 +92,7 @@ test("tool grant lifetime", async () => {
     assert.deepEqual(events, ["prepare", "grant", "run", "revoke"]);
 });
 
-test("Notion access follows the configured owner and requires a task grant", async () => {
+test("Notion grants", async () => {
     const cases = [
         { settings: { owner: "U2" }, user: "U2", grant: true, allowed: true },
         { settings: { owner: "U2" }, user: "U1", grant: true, allowed: false },
@@ -124,7 +124,7 @@ test("Notion access follows the configured owner and requires a task grant", asy
     }
 });
 
-test("Notion owner must still be authorized for the task", async () => {
+test("Notion owner authorization", async () => {
     const execute = createTaskExecutor({
         state: {},
         personal: async () => assert.fail("Must authorize the task before reading private settings"),

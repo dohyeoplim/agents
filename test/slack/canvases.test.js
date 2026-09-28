@@ -28,7 +28,7 @@ async function setup(t) {
     return { file, state, calls, options, canvases: createCanvases(options) };
 }
 
-test("create a canvas in the task channel and reuse its receipt after restart", async (t) => {
+test("Canvas creation", async (t) => {
     const f = await setup(t);
     const tools = createTools({ canvases: f.canvases });
     const definition = tools.definitions.find((tool) => tool.name === "slack_canvas_create");
@@ -47,7 +47,7 @@ test("create a canvas in the task channel and reuse its receipt after restart", 
     assert.equal(f.calls.length, 1);
 });
 
-test("concurrent identical requests create one canvas", async (t) => {
+test("concurrent requests", async (t) => {
     const f = await setup(t);
     const results = await Promise.allSettled([
         f.canvases.create(input, context), f.canvases.create(input, context),
@@ -56,7 +56,7 @@ test("concurrent identical requests create one canvas", async (t) => {
     assert.equal(f.calls.length, 1);
 });
 
-test("canvas input cannot redirect creation or bypass task authorization", async (t) => {
+test("creation authorization", async (t) => {
     const f = await setup(t);
     for (const args of [{ ...input, channel: "C2" }, { ...input, markdown: " " },
         { ...input, markdown: "a".repeat(20001) }]) {
@@ -70,7 +70,7 @@ test("canvas input cannot redirect creation or bypass task authorization", async
     assert.equal(f.calls.length, 0);
 });
 
-test("uncertain network outcomes survive restart and are not retried", async (t) => {
+test("uncertain outcomes", async (t) => {
     const f = await setup(t);
     let calls = 0;
     const canvases = createCanvases({ ...f.options, request: async () => {
@@ -84,7 +84,7 @@ test("uncertain network outcomes survive restart and are not retried", async (t)
     assert.equal(f.calls.length, 0);
 });
 
-test("known Slack rejections permit correction without leaking response details", async (t) => {
+test("Slack rejections", async (t) => {
     const f = await setup(t);
     const canvases = createCanvases({ ...f.options, request: async () => ({ ok: true,
         json: async () => ({ ok: false, error: "missing_scope", detail: "test-secret" }),
@@ -94,7 +94,7 @@ test("known Slack rejections permit correction without leaking response details"
     assert.equal((await f.canvases.create(input, context)).canvasId, "F1234567");
 });
 
-test("creation preserves the Slack result when storing its receipt fails", async (t) => {
+test("receipt failure", async (t) => {
     const f = await setup(t);
     let updates = 0;
     const canvases = createCanvases({ ...f.options, state: { update: (change) => {
@@ -108,7 +108,7 @@ test("creation preserves the Slack result when storing its receipt fails", async
     assert.equal(f.calls.length, 1);
 });
 
-test("cancelled calls and failed reservations do not reach Slack", async (t) => {
+test("creation cancellation", async (t) => {
     const f = await setup(t);
     await assert.rejects(f.canvases.create(input, context, AbortSignal.abort()));
     const canvases = createCanvases({ ...f.options, state: {
@@ -118,7 +118,7 @@ test("cancelled calls and failed reservations do not reach Slack", async (t) => 
     assert.equal(f.calls.length, 0);
 });
 
-test("MCP exposes canvas creation and accepts long Korean notes in the authorized channel", async (t) => {
+test("Canvas tool", async (t) => {
     const f = await setup(t);
     const bridge = createToolServer({ tools: createTools({ canvases: f.canvases }), state: f.state,
         personal: async () => ({ owner: "U1" }),

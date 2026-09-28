@@ -33,7 +33,7 @@ async function database(t) {
 }
 
 test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
-    await t.test("legacy import preserves state and runs only once", async (t) => {
+    await t.test("legacy import", async (t) => {
         const { store, query } = await database(t);
         const directory = await mkdtemp(path.join(os.tmpdir(), "agents-import-"));
         t.after(() => rm(directory, { force: true, recursive: true }));
@@ -58,7 +58,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.deepEqual(JSON.parse(await readFile(legacyFile, "utf8")), legacy);
     });
 
-    await t.test("malformed imports roll back instead of starting empty", async (t) => {
+    await t.test("import rollback", async (t) => {
         const { store, query } = await database(t);
         const directory = await mkdtemp(path.join(os.tmpdir(), "agents-invalid-"));
         t.after(() => rm(directory, { force: true, recursive: true }));
@@ -71,7 +71,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         await store({ legacyFile }).load();
     });
 
-    await t.test("version one migrates without replacing existing data and retains Canvas records", async (t) => {
+    await t.test("Canvas migration", async (t) => {
         const { store, query } = await database(t);
         const first = await store().load();
         await first.update((data) => {
@@ -108,7 +108,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
             canvasReads: { read }, canvasChanges: { change } });
     });
 
-    await t.test("one gateway owns the snapshot and queued writes commit in order", async (t) => {
+    await t.test("gateway ownership", async (t) => {
         const { store } = await database(t);
         const first = await store().load();
         await assert.rejects(store().load(), /Another gateway/);
@@ -145,7 +145,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
             .rows[0].value, 3);
     });
 
-    await t.test("failed transactions persist neither the inbox transition nor the task", async (t) => {
+    await t.test("transaction rollback", async (t) => {
         const { store, query } = await database(t);
         const first = await store().load();
         await first.update((data) => { data.inbox.message = { status: "pending" }; });
@@ -164,7 +164,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.deepEqual(second.snapshot().threads, {});
     });
 
-    await t.test("pruned executions and messages remain archived while forgotten memories are removed", async (t) => {
+    await t.test("archive retention", async (t) => {
         const { store, query } = await database(t);
         const first = await store().load();
         await first.update((data) => {
@@ -187,7 +187,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.equal((await query("SELECT * FROM test_schema.knowledge_entries")).rowCount, 0);
     });
 
-    await t.test("closing drains accepted writes and validation errors leave the store usable", async (t) => {
+    await t.test("storage shutdown", async (t) => {
         const { store } = await database(t);
         const first = await store().load();
         await assert.rejects(first.update((data) => { data.events.bad = 1.5; }));

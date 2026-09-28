@@ -67,7 +67,7 @@ test("resource refresh", async () => {
     await assert.rejects(resources.read("C1", id), /file_not_found/);
 });
 
-test("fresh Canvas reads bypass cached content with unchanged file metadata and preserve artifacts", async () => {
+test("Canvas refresh", async () => {
     const saved = [];
     const { resources, edit } = fixture({
         file: { filetype: "canvas", updated: 1 },
@@ -91,7 +91,7 @@ test("fresh Canvas reads bypass cached content with unchanged file metadata and 
     assert.equal((await resources.read("C1", id)).revision, fresh.revision);
 });
 
-test("Canvas reads reject ordinary HTML and accept Slack Canvas metadata", async () => {
+test("Canvas validation", async () => {
     const { resources, calls } = fixture({ file: { filetype: "html", mimetype: "text/html" } });
     await assert.rejects(resources.read("C1", id, undefined, { canvasOnly: true }), /not a Slack Canvas/);
     assert.ok(calls.every((call) => call.url.hostname === "slack.com"));
@@ -102,7 +102,7 @@ test("Canvas reads reject ordinary HTML and accept Slack Canvas metadata", async
     }
 });
 
-test("document revisions detect raw formatting and title changes without artifact storage", async () => {
+test("document revisions", async () => {
     let content = "<p>Hello</p>";
     let title = "Notes";
     const resources = createSlackResources({
@@ -152,7 +152,7 @@ test("relevant excerpt", () => {
     assert.ok(JSON.parse(result).sources[0].text.includes("deadline: Friday"));
 });
 
-test("document reads archive original bytes and extracted text per version and channel", async () => {
+test("document archiving", async () => {
     const saved = [];
     const artifacts = { put: async (data, metadata) => {
         const result = { id: String(saved.length), ...metadata };
@@ -179,7 +179,7 @@ test("document reads archive original bytes and extracted text per version and c
     assert.notEqual(saved[0].source.version, saved[4].source.version);
 });
 
-test("unauthorized files are never archived", async () => {
+test("archive authorization", async () => {
     let writes = 0;
     const { resources } = fixture({
         file: { channels: ["C2"] }, artifacts: { put: async () => { writes++; } },
@@ -188,7 +188,7 @@ test("unauthorized files are never archived", async () => {
     assert.equal(writes, 0);
 });
 
-test("image originals are archived only after format and channel validation", async () => {
+test("image archiving", async () => {
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
         "base64");
     const saved = [];
