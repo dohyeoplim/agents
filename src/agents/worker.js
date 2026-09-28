@@ -75,7 +75,7 @@ export function createWorker({
                     if (!current || current.enabled === false || current.agent !== agent) {
                         throw Error("Channel disabled");
                     }
-                    const cwd = await confined(workspace, current.cwd);
+                    const cwd = await confined(workspace, current.cwd, true);
                     const profile = resolveProfile(await profiles(), current, input.profile);
                     const skill = resolveSkill(await skills(), profile, input.skill);
                     if (input.stream === true) {

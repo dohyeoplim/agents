@@ -1,5 +1,6 @@
 import bolt from "@slack/bolt";
 import { loadConfig } from "./channels/config.js";
+import { createAutomaticChannels } from "./channels/automatic.js";
 import { PostgresState } from "./storage/postgres.js";
 import { createArtifactStore } from "./storage/artifacts.js";
 import { TaskRuntime } from "./tasks/runtime.js";
@@ -67,7 +68,11 @@ const runtime = new TaskRuntime({
         toolServer, briefingContext }),
 });
 const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources });
+const channels = createAutomaticChannels({ client: app.client, team: config.team, bot: identity.user_id,
+    file: process.env.AUTO_CHANNELS_FILE || "/channels/routes.json" });
 
+app.event("channel_created", channels.handle);
+app.event("member_joined_channel", channels.handle);
 app.event("app_mention", messages.handle);
 app.event("message", messages.handle);
 app.event("agent_session_title_changed", titles.changed);
@@ -79,6 +84,9 @@ await new Promise((resolve, reject) => {
     toolServer.server.listen(8081, "0.0.0.0", resolve);
 });
 await app.start();
+await channels.sync().catch(() => {});
+const channelTimer = setInterval(() => { channels.sync().catch(() => {}); }, 5 * 60 * 1000);
+channelTimer.unref();
 await messages.recover();
 runtime.closed = false;
 runtime.wake();
@@ -90,7 +98,9 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, async () => {
         stopScheduler();
         stopBriefings();
+        clearInterval(channelTimer);
         await app.stop();
+        await channels.stop();
         await messages.idle();
         runtime.closed = true;
         await runtime.idle();

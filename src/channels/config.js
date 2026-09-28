@@ -45,8 +45,19 @@ export function validate(config) {
     return config;
 }
 
-export async function loadConfig(file = "/config/routes.json") {
-    return validate(JSON.parse(await readFile(file, "utf8")));
+export async function loadConfig(file = "/config/routes.json", automatic = process.env.AUTO_CHANNELS_FILE) {
+    const config = validate(JSON.parse(await readFile(file, "utf8")));
+    if (!automatic) return config;
+    let saved;
+    try {
+        saved = JSON.parse(await readFile(automatic, "utf8"));
+    } catch (error) {
+        if (error.code === "ENOENT") return config;
+        throw error;
+    }
+    if (saved.team !== config.team) throw Error("Automatic channel workspace mismatch");
+    validate({ ...config, channels: saved.channels });
+    return validate({ ...config, channels: { ...saved.channels, ...config.channels } });
 }
 
 async function prepareDirectories(config, root) {

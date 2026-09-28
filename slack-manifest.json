@@ -15,6 +15,8 @@
                 "chat:write.customize",
                 "channels:history",
                 "channels:read",
+                "channels:join",
+                "groups:read",
                 "files:read",
                 "bookmarks:read",
                 "canvases:read",
@@ -29,6 +31,8 @@
                 "app_mention",
                 "message.channels",
                 "message.groups",
+                "channel_created",
+                "member_joined_channel",
                 "agent_session_title_changed"
             ]
         }

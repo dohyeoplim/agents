@@ -2,6 +2,7 @@ FROM node:24-bookworm-slim AS base
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
+RUN mkdir /channels && chown node:node /channels
 COPY src ./src
 USER node
 CMD ["node", "src/gateway.js"]

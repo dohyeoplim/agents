@@ -21,6 +21,7 @@ services:
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?Set SLACK_BOT_TOKEN}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:?Set SLACK_APP_TOKEN}
+      AUTO_CHANNELS_FILE: /channels/routes.json
       PGHOST: database
       PGDATABASE: agents
       PGUSER: agents
@@ -28,6 +29,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./data/gateway:/state
+      - channels:/channels
       - ./data/secrets:/run/secrets:ro
     networks: [bridge, internet]
     depends_on:
@@ -61,6 +63,7 @@ services:
       target: worker
     environment:
       AGENT_ID: assistant
+      AUTO_CHANNELS_FILE: /channels/routes.json
       CODEX_HOME: /codex
     volumes:
       - ./config/routes.json:/config/routes.json:ro
@@ -68,6 +71,7 @@ services:
       - ./config/skills.json:/config/skills.json:ro
       - ./data/assistant/codex:/codex
       - ./data/assistant/workspace:/workspace
+      - channels:/channels:ro
     networks: [bridge, internet]
     init: true
     read_only: true
@@ -94,3 +98,4 @@ networks:
   internet: {}
 volumes:
   database:
+  channels:
