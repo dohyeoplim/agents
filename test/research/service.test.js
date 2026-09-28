@@ -7,6 +7,8 @@ import { createResearchSlack } from "../../src/research/slack.js";
 const context = { team: "T1", user: "U1", channel: "C1", thread: "100.001",
     key: "T1:C1:100.001:assistant", profile: "assistant", messageTs: "100.001" };
 const plan = { ready: true, title: "Methods", brief: "Compare methods and limitations", questions: [] };
+const proposal = { title: plan.title, brief: plan.brief, questions: [] };
+const taskContext = { ...context, id: "task1" };
 const deferred = () => Promise.withResolvers();
 
 function fixture(run, send) {
@@ -42,30 +44,42 @@ function fixture(run, send) {
                 `${task.provider} ${task.researchStage} result`) };
     };
     const post = async (job, text) => { sent.push({ job, text }); await send?.(job, text); };
-    const service = createResearch({ state, execute, library, config, post, personal: async () => ({ owner: "U1" }) });
+    let now = 100001;
+    const service = createResearch({ state, execute, library, config, post, now: () => now,
+        personal: async () => ({ owner: "U1" }) });
     service.attach({ publish: async (job) => { published.push(job); } });
-    const job = () => Object.values(state.snapshot().researchJobs)[0];
+    const job = () => Object.values(state.snapshot().researchJobs).at(-1);
     async function ready() {
-        assert.equal(await service.handle(context, "!research Compare methods", "event1"), true);
+        await service.propose(proposal, taskContext);
         await service.idle();
         assert.equal(job().status, "ready");
         return job();
     }
-    return { service, state, calls, sent, published, current, config, post, job, ready };
+    return { service, state, calls, sent, published, current, config, post, job, ready,
+        setTime: (value) => { now = value; } };
 }
 
-test("natural research request", async () => {
+test("conversation routing", async () => {
     const f = fixture();
+    await f.ready();
+    const before = f.state.snapshot().researchJobs;
+    const messages = ["진행중이야?", "이어서 진행", "기술 성능이 더 중요해", "!research Compare methods"];
+    for (const text of messages) {
+        assert.equal(await f.service.handle(context, text), false);
+    }
+    let woke = false;
     const handler = createMessageHandler({ state: f.state, research: f.service, config: f.config,
-        bot: "BOT", post: f.post, runtime: { wake: () => assert.fail("Unexpected ordinary task") } });
+        bot: "BOT", post: f.post, runtime: { wake: () => { woke = true; } },
+        profiles: async () => ({ assistant: { name: "Assistant", delegates: [], skills: [] } }),
+        skills: async () => ({}),
+    });
     await handler.handle({ body: { team_id: context.team }, event: {
-        channel: context.channel, user: context.user, ts: context.messageTs,
-        text: "<@BOT> 아까 On-device 관련 아이데이션을 계속 진행 중인데, 딥리서치 활용해서 제대로 새롭게 진행하고싶어.",
+        channel: context.channel, user: context.user, ts: "101.001", thread_ts: context.thread,
+        text: "<@BOT> 진행중이야?",
     } });
-    await f.service.idle();
-    assert.equal(f.job().status, "ready");
-    assert.deepEqual(f.calls.map((task) => task.researchStage), ["clarify"]);
-    assert.equal(f.state.snapshot().inbox["C1:100.001"].status, "processed");
+    assert.equal(woke, true);
+    assert.deepEqual(f.state.snapshot().researchJobs, before);
+    assert.equal(f.calls.length, 0);
 });
 
 test("research lifecycle", async () => {
@@ -78,7 +92,7 @@ test("research lifecycle", async () => {
         }
     });
     const initial = await f.ready();
-    assert.deepEqual(f.calls.map((task) => task.researchStage), ["clarify"]);
+    assert.deepEqual(f.calls, []);
     await f.service.control(initial.id, "start", undefined, { ...context, revision: initial.revision });
     await Promise.all([started.codex.promise, started.claude.promise]);
     assert.equal(f.job().status, "running");
@@ -86,7 +100,7 @@ test("research lifecycle", async () => {
     release.resolve();
     await f.service.idle();
     assert.deepEqual(f.calls.map((task) => task.researchStage),
-        ["clarify", "explore", "counter", "synthesize", "review"]);
+        ["explore", "counter", "synthesize", "review"]);
     for (const task of f.calls.filter((item) => ["explore", "counter"].includes(item.researchStage))) {
         assert.ok(JSON.parse(task.prompt).reports.every((report) => report.provider === task.provider));
     }
@@ -166,7 +180,7 @@ test("concurrent chat", async () => {
     await f.service.idle();
 });
 
-test("research steering", async () => {
+test("active scope", async () => {
     const hold = deferred();
     const started = deferred();
     const f = fixture(async (task) => {
@@ -178,38 +192,15 @@ test("research steering", async () => {
     const initial = await f.ready();
     await f.service.control(initial.id, "start", undefined, context);
     await started.promise;
-    await f.service.handle(context, "Include implementation cost", "event2");
+    const before = f.job();
+    await assert.rejects(f.service.propose({ ...proposal, id: before.id, revision: before.revision,
+        brief: "Include implementation cost" }, { ...taskContext, id: "task2", messageTs: "102.001" }));
+    assert.equal(await f.service.handle(context, "Include implementation cost"), false);
+    assert.deepEqual(f.job(), before);
     hold.resolve();
     await f.service.idle();
     const synthesis = f.calls.find((task) => task.researchStage === "synthesize");
-    assert.deepEqual(JSON.parse(synthesis.prompt).updates, ["Include implementation cost"]);
-});
-
-test("clarification steering", async () => {
-    const started = deferred();
-    const release = deferred();
-    let attempts = 0;
-    const f = fixture(async (task) => {
-        if (task.researchStage !== "clarify") return;
-        attempts++;
-        if (attempts === 1) {
-            started.resolve();
-            await release.promise;
-            return JSON.stringify(plan);
-        }
-        assert.deepEqual(JSON.parse(task.prompt).updates, ["Only open-source methods"]);
-        return JSON.stringify({ ...plan, brief: "Compare only open-source methods" });
-    });
-    await f.service.handle(context, "!research Compare methods", "event1");
-    await started.promise;
-    await f.service.handle(context, "Only open-source methods", "event2");
-    assert.match(f.sent.at(-1).text, /준비되면 Start/);
-    release.resolve();
-    await f.service.idle();
-    assert.equal(attempts, 2);
-    assert.equal(f.job().brief, "Compare only open-source methods");
-    assert.equal(f.job().status, "ready");
-    assert.equal(f.published.some((job) => job.status === "ready" && job.brief === plan.brief), false);
+    assert.equal(JSON.parse(synthesis.prompt).brief, plan.brief);
 });
 
 test("provider failure", async () => {
@@ -233,41 +224,32 @@ test("provider failure", async () => {
     await f.service.idle();
     assert.equal(cancelled, true);
     assert.equal(f.job().status, "failed");
-    assert.ok(f.job().reports.some((report) => report.stage === "clarify"));
+    assert.equal(f.job().reports.some((report) => report.stage === "synthesize"), false);
 });
 
-test("status message identity", async () => {
-    let clarifications = 0;
-    const f = fixture(async (task) => {
-        if (task.researchStage !== "clarify") return;
-        return JSON.stringify(++clarifications === 1 ?
-            { ...plan, ready: false, questions: ["Which constraints apply?"] } : plan);
-    });
+test("message identity", async () => {
+    const f = fixture();
     const messages = [];
     const client = { chat: {
         postMessage: async (value) => { messages.push({ method: "post", ...value }); return { ts: "101.001" }; },
         update: async (value) => { messages.push({ method: "update", ...value }); return {}; },
     } };
     f.service.attach(createResearchSlack({ client, state: f.state, config: f.config, control: f.service.control }));
-    await f.service.handle(context, "!research Compare methods", "event1");
-    await f.service.idle();
+    await f.service.propose({ ...proposal, questions: ["Which constraints apply?"] }, taskContext);
     assert.equal(f.job().status, "awaiting_input");
     assert.equal(messages[0].method, "post");
     assert.equal(messages[0].thread_ts, context.thread);
     assert.equal(f.job().messageTs, "101.001");
     assert.equal(f.job().sourceMessageTs, "100.001");
-    assert.equal(f.calls[0].messageTs, "100.001");
-    assert.deepEqual(JSON.parse(f.calls[0].prompt).conversation,
-        { channel: context.channel, thread: context.thread, messageTs: "100.001" });
-
-    await f.service.handle({ ...context, messageTs: "102.001", fileIds: ["F123"] },
-        "Use the attached requirements", "event2");
+    assert.equal(f.calls.length, 0);
+    await f.service.control(f.job().id, "reply", "Use the attached requirements",
+        { ...context, messageTs: "102.001", fileIds: ["F123"] });
     await f.service.idle();
     assert.equal(f.job().status, "ready");
     assert.equal(f.job().messageTs, "101.001");
     assert.equal(f.job().sourceMessageTs, "102.001");
-    assert.equal(f.calls[1].messageTs, "102.001");
-    assert.equal(JSON.parse(f.calls[1].prompt).conversation.messageTs, "102.001");
+    assert.equal(f.calls[0].messageTs, "102.001");
+    assert.equal(JSON.parse(f.calls[0].prompt).conversation.messageTs, "102.001");
     assert.deepEqual(f.job().fileIds, ["F123"]);
     assert.equal(messages.filter((item) => item.method === "post").length, 1);
     assert.ok(messages.filter((item) => item.method === "update").every((item) => item.ts === "101.001"));
@@ -292,5 +274,156 @@ test("stale delivery", async () => {
     await f.service.idle();
     assert.equal(f.job().status, "ready");
     assert.equal(f.job().error, "");
-    assert.deepEqual(f.job().answers, ["Compare deployment costs"]);
+    assert.equal(f.job().request, "Compare deployment costs");
+    assert.equal(f.job().parentId, initial.id);
+    assert.equal(f.state.snapshot().researchJobs[initial.id].status, "completed");
+});
+
+test("later confirmation", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    const action = { id: initial.id, revision: initial.revision, action: "start" };
+    for (const candidate of [taskContext, { ...taskContext, id: "task2" },
+        { ...taskContext, id: "task2", messageTs: "99.999999" }]) {
+        await assert.rejects(f.service.act(action, candidate));
+        assert.equal(f.job().status, "ready");
+    }
+    await f.service.act(action, { ...taskContext, id: "task2", messageTs: "101.001" });
+    await f.service.idle();
+    assert.equal(f.job().status, "completed");
+    assert.equal(f.job().confirmedPlans.length, 1);
+    assert.equal(f.job().confirmedPlans[0].brief, plan.brief);
+});
+
+test("proposal retries", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    const retry = await f.service.propose(proposal, taskContext);
+    assert.equal(retry.id, initial.id);
+    assert.equal(retry.revision, initial.revision);
+    const unchanged = await f.service.propose({ ...proposal, id: initial.id, revision: initial.revision },
+        { ...taskContext, id: "task2", messageTs: "101.001" });
+    assert.equal(unchanged.revision, initial.revision);
+    const updated = await f.service.propose({ ...proposal, id: initial.id, revision: initial.revision,
+        brief: "Measure latency and memory" }, { ...taskContext, id: "task2", messageTs: "101.001" });
+    assert.equal(updated.revision, initial.revision + 1);
+    await assert.rejects(f.service.propose({ ...proposal, id: initial.id, revision: initial.revision }, taskContext));
+    await assert.rejects(f.service.act({ id: initial.id, revision: initial.revision, action: "start" },
+        { ...taskContext, id: "task3", messageTs: "102.001" }));
+    assert.equal(f.job().brief, "Measure latency and memory");
+    assert.equal(Object.keys(f.state.snapshot().researchJobs).length, 1);
+});
+
+test("revised confirmation", async () => {
+    const started = deferred();
+    let block = true;
+    const f = fixture(async (task, signal) => {
+        if (block && ["explore", "counter"].includes(task.researchStage)) {
+            started.resolve();
+            await new Promise((resolve, reject) => signal.addEventListener("abort",
+                () => reject(Error("Cancelled")), { once: true }));
+        }
+    });
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await started.promise;
+    await f.service.control(initial.id, "pause", undefined, context);
+    await f.service.idle();
+    const original = f.job().confirmedPlans[0];
+    const revisedContext = { ...taskContext, id: "task2", messageTs: "102.001" };
+    const revised = await f.service.propose({ ...proposal, id: initial.id, revision: f.job().revision,
+        brief: "Prioritize latency and memory" }, revisedContext);
+    assert.equal(revised.status, "ready");
+    assert.deepEqual(f.job().confirmedPlans, [original]);
+    await assert.rejects(f.service.act({ id: revised.id, revision: revised.revision, action: "resume" },
+        revisedContext));
+    await assert.rejects(f.service.act({ id: revised.id, revision: revised.revision, action: "start" },
+        revisedContext));
+    block = false;
+    await f.service.act({ id: revised.id, revision: revised.revision, action: "start" },
+        { ...taskContext, id: "task3", messageTs: "103.001" });
+    await f.service.idle();
+    assert.equal(f.job().status, "completed");
+    assert.deepEqual(f.job().confirmedPlans[0], original);
+    assert.equal(f.job().confirmedPlans[1].brief, "Prioritize latency and memory");
+});
+
+test("followup rounds", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await f.service.idle();
+    const completed = f.job();
+    await f.state.update((data) => { data.researchSources.saved = { researchId: completed.id }; });
+    const next = await f.service.propose({ ...proposal, parentId: completed.id, brief: "Compare deployment costs" },
+        { ...taskContext, id: "task2", messageTs: "102.001" });
+    assert.notEqual(next.id, completed.id);
+    assert.equal(next.round, 2);
+    assert.equal(next.parentId, completed.id);
+    assert.equal(next.progress.sources, 0);
+    assert.equal(next.progress.reports, 0);
+    assert.deepEqual(f.state.snapshot().researchJobs[completed.id], completed);
+    const status = await f.service.inspect(taskContext);
+    assert.equal(status.latestId, next.id);
+    assert.equal(status.rounds.length, 2);
+    const result = await f.service.readResult({ id: completed.id }, taskContext);
+    assert.equal(result.complete, true);
+    assert.match(result.report.text, /synthesize result/);
+    assert.equal((await f.service.readResult({ id: next.id }, taskContext)).available, false);
+});
+
+test("read authorization", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    for (const other of [{ ...taskContext, user: "U2" }, { ...taskContext, channel: "C2" },
+        { ...taskContext, thread: "200.001", key: "T1:C1:200.001:assistant" }]) {
+        await assert.rejects(f.service.readResult({ id: initial.id }, other));
+    }
+    await assert.rejects(f.service.inspect({ ...taskContext, user: "U2" }));
+    assert.equal((await f.service.inspect({ ...taskContext, thread: "200.001",
+        key: "T1:C1:200.001:assistant" })).rounds.length, 0);
+});
+
+test("confirmation boundary", async () => {
+    const f = fixture(async (task) => {
+        if (task.researchStage === "clarify") f.setTime(110001);
+    });
+    const initial = await f.ready();
+    f.setTime(105001);
+    await f.service.control(initial.id, "edit", "Prioritize latency", { ...context, revision: initial.revision });
+    await f.service.idle();
+    const revised = f.job();
+    const action = { id: revised.id, revision: revised.revision, action: "start" };
+    for (const messageTs of ["104.001", "106.001", "110.001"]) {
+        await assert.rejects(f.service.act(action, { ...taskContext, id: "task2", messageTs }));
+    }
+    assert.equal(f.job().status, "ready");
+    await f.service.act(action, { ...taskContext, id: "task3", messageTs: "111.001" });
+    await f.service.idle();
+    assert.equal(f.job().status, "completed");
+});
+
+test("export scope", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await f.service.idle();
+    await f.state.update((data) => {
+        Object.assign(data.researchJobs[initial.id], { status: "paused", mode: "canvas" });
+    });
+    const before = f.job();
+    await assert.rejects(f.service.propose({ ...proposal, id: initial.id, revision: before.revision,
+        brief: "Changed plan" }, { ...taskContext, id: "task2" }));
+    await assert.rejects(f.service.control(initial.id, "edit", "Changed plan", context));
+    assert.deepEqual(f.job(), before);
+});
+
+test("closed mutations", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    await f.service.stop();
+    await assert.rejects(f.service.propose({ ...proposal, id: initial.id, revision: initial.revision,
+        brief: "Changed scope" }, taskContext));
+    await assert.rejects(f.service.control(initial.id, "start", undefined, context));
+    assert.equal(f.calls.length, 0);
 });

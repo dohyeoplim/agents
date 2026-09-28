@@ -156,3 +156,30 @@ test("stale results", async (t) => {
     assert.equal(state.snapshot().researchJobs.job.runId, "replacement");
     assert.equal(state.snapshot().researchJobs.job.reports?.length || 0, 0);
 });
+
+test("parent assignment", async (t) => {
+    const { engine, job, state, library, calls } = await fixture(t, async (task, { state }) => {
+        assert.ok(state.snapshot().researchJobs.job.phaseStartedAt > 0);
+        const prompt = JSON.parse(task.prompt);
+        assert.equal(prompt.parentId, "parent");
+        assert.equal(prompt.previousRound.brief, "Original scope");
+        assert.ok(prompt.previousRound.finalReportId);
+        return task.researchStage === "review" ? ready : "New report";
+    });
+    await state.update((data) => {
+        data.researchJobs.parent = { ...job, id: "parent", brief: "Original scope" };
+        data.researchJobs.job.parentId = "parent";
+    });
+    const parent = state.snapshot().researchJobs.parent;
+    const final = await library.saveReport(parent, "synthesize", "Original final");
+    await state.update((data) => {
+        Object.assign(data.researchJobs.parent, { status: "completed", finalReportId: final.id });
+    });
+    for (let index = 0; index < 14; index++) {
+        await library.saveReport(job, "explore", "Prior attempt " + index);
+    }
+    await engine.run(state.snapshot().researchJobs.job, signal());
+    assert.equal(JSON.parse(calls[0].prompt).reports.length, 12);
+    for (const task of calls) assert.equal(JSON.parse(task.prompt).previousRound.finalReportId, final.id);
+    assert.equal(state.snapshot().researchJobs.parent.finalReportId, final.id);
+});

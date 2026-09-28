@@ -31,3 +31,10 @@ test("memory commands", async () => {
     await run("!forget " + id);
     assert.equal(await run("!memories"), "No matching entries");
 });
+
+test("research command", () => {
+    const job = requestedTask("!research Compare on-device methods", profiles, { name: "inbox" }, skills);
+    assert.match(job.prompt, /research control tools/);
+    assert.match(job.prompt, /Compare on-device methods/);
+    assert.equal(job.profile, "assistant");
+});

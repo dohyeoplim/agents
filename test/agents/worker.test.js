@@ -53,6 +53,16 @@ test("worker context", async (t) => {
     assert.ok(options.prompt.includes("limitations"));
 });
 
+test("clarification policy", async (t) => {
+    const request = await fixture(t, async (options) => {
+        assert.equal(options.policy.webSearch, "disabled");
+        return { session: randomUUID(), answer: "Plan" };
+    });
+    const response = await request("/run", { channel: "C1", prompt: "Clarify scope",
+        researchId: randomUUID(), researchStage: "clarify" });
+    assert.equal((await workerResponse(response)).answer, "Plan");
+});
+
 test("research isolation", async (t) => {
     let release;
     let ready;

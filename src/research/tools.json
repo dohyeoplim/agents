@@ -1,0 +1,20 @@
+{
+    "research_status": [
+        "Read research rounds in the current Slack thread, including plans, status and revisions. Read this",
+        "before proposing or controlling research. This does not change a plan or execution."
+    ],
+    "research_propose": [
+        "Create a research plan or update a draft using its id and revision. Include unresolved questions",
+        "only when necessary. Use parentId for a new round following a completed report. This prepares a plan",
+        "for user confirmation and does not start research."
+    ],
+    "research_control": [
+        "Control a research round using the id and revision returned by research_status. Start only after the",
+        "user confirms an existing plan in a later message. Resume continues an interrupted round. Pause",
+        "stops execution, finish requests a final report, and canvas exports a completed result."
+    ],
+    "research_result": [
+        "Read the final or latest stage report for a research round in the current thread. Follow nextOffset",
+        "to read additional chunks. Reports are model outputs, not independently verified evidence."
+    ]
+}

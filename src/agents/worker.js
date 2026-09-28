@@ -116,7 +116,7 @@ export function createWorker({
                         cwd,
                         session: input.session,
                         model: current.model || profile.model,
-                        policy: profile,
+                        policy: input.researchStage === "clarify" ? { ...profile, webSearch: "disabled" } : profile,
                         timeout: research ? null : profile.timeoutSeconds * 1000,
                         signal: controller.signal,
                         images: input.images || [],

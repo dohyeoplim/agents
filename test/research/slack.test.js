@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createResearchSlack, renderResearch } from "../../src/research/slack.js";
 import { researchText } from "../../src/research/copy.js";
+import { researchActions } from "../../src/research/actions.js";
+import { researchProgress } from "../../src/research/progress.js";
 
 const id = "05d1b22a-cf4f-484f-8d22-60a44e9932f7";
 
@@ -53,7 +55,41 @@ test("completion actions", () => {
         ["Research More", "Save to Canvas"]);
     assert.equal(result.blocks[0].text.type, "plain_text");
     assert.equal(result.blocks[0].text.text.length, 150);
-    assert.equal(result.blocks[2].text.text.length, 2900);
+    assert.equal(result.blocks[3].text.text.length, 2900);
+});
+
+test("scope actions", async () => {
+    for (const status of ["paused", "interrupted", "failed"]) {
+        for (const scope of [{ startedAt: 1 }, { reports: [{ stage: "explore" }] }]) {
+            const { job, click, calls } = fixture({ status, ...scope });
+            assert.deepEqual(researchActions(job), ["resume", "edit"]);
+            await click("edit");
+            assert.equal(calls.some(([kind]) => kind === "open"), true);
+        }
+        assert.deepEqual(researchActions({ status }), ["resume", "edit"]);
+    }
+    assert.equal(researchActions({ status: "running", startedAt: 1 }).includes("edit"), false);
+});
+
+test("round progress", async () => {
+    const { job, data, ui, calls } = fixture({ round: 2, runId: "current", phaseStartedAt: 1000,
+        reports: [{ stage: "clarify" }] });
+    data.researchSources = { a: { researchId: id }, b: { researchId: "previous" } };
+    data.tasks = {
+        active: { researchId: id, researchRunId: "current", status: "running", provider: "codex",
+            researchStage: "explore", startedAt: 1000 },
+        previous: { researchId: id, researchRunId: "previous", status: "running" },
+        done: { researchId: id, researchRunId: "current", status: "completed" },
+    };
+    const progress = researchProgress(job, data);
+    assert.equal(progress.sources, 1);
+    assert.equal(progress.reports, 1);
+    assert.deepEqual(progress.activeTasks, [{ provider: "codex", stage: "explore", startedAt: 1000 }]);
+    await ui.publish(job);
+    const rendered = calls.find(([kind]) => kind === "update")[1].blocks[2].elements[0].text;
+    assert.match(rendered, /Round 2 · Sources 1 · Reports 1/);
+    assert.match(rendered, /1970-01-01T00:00:01.000Z/);
+    assert.match(rendered, /codex · explore running/);
 });
 
 test("clarification actions", async () => {

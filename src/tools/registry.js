@@ -4,12 +4,15 @@ import { paperId } from "../papers/arxiv.js";
 import { createInput, findInput, readInput, bindInput, updateInput } from "../slack/canvas-input.js";
 import { historyInput, searchInput, messageInput } from "../slack/history.js";
 import { sourceInput, sourcesInput, sourceReadInput } from "../research/library.js";
+import { createResearchControlTools } from "../research/tools.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
 
-export function createTools({ personal, weather, calendar, arxiv, library, state, canvases, history, research }) {
+export function createTools({ personal, weather, calendar, arxiv, library, state, canvases, history,
+    research, researchControl }) {
     const tools = {
+        ...createResearchControlTools(researchControl),
         research_source_save: {
             description: "Save evidence in the active research. Supply the actual source URL, text you read, " +
                 "coverage, and optional page/section locator and supported claim. Snippets are not full text. " +

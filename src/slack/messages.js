@@ -89,7 +89,7 @@ export function createMessageHandler({
             return;
         }
         const context = contextFor(item);
-        if (research && (!parseCommand(item.prompt) || /^!research(?:\s|$)|^!stop\s*$/i.test(item.prompt))) {
+        if (research && item.prompt.trim() === "!stop") {
             try {
                 if (await research.handle(context, item.prompt, id)) {
                     await state.update((data) => {
@@ -111,7 +111,7 @@ export function createMessageHandler({
             availableSkills = await skills();
             if (!Object.hasOwn(availableProfiles, context.profile)) throw Error("Channel profile is unavailable");
             command = parseCommand(item.prompt);
-            if (!command || ["delegate", "skill", "read"].includes(command.name)) {
+            if (!command || ["delegate", "skill", "read", "research"].includes(command.name)) {
                 task = requestedTask(item.prompt, availableProfiles, route, availableSkills);
             }
         } catch (error) {

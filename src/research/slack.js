@@ -1,12 +1,8 @@
 import { z } from "zod";
 import { profileFor } from "../agents/profiles.js";
 import { researchText } from "./copy.js";
-
-const buttons = {
-    clarifying: ["status", "pause"], awaiting_input: ["reply"], ready: ["start", "edit"], queued: ["status", "pause"],
-    running: ["status", "pause", "summarize", "finish"], paused: ["resume", "edit"],
-    interrupted: ["resume", "edit"], failed: ["resume", "edit"], completed: ["more", "canvas"],
-};
+import { researchActions } from "./actions.js";
+import { researchProgress } from "./progress.js";
 const reference = z.object({ id: z.uuid(), revision: z.number().int().nonnegative() }).strict();
 const metadata = reference.extend({
     action: z.enum(["edit", "reply", "more"]), channel: z.string().regex(/^[CG][A-Z0-9]+$/),
@@ -14,8 +10,6 @@ const metadata = reference.extend({
 }).strict();
 const input = z.string().trim().min(1).max(3000);
 const plain = (value, limit = 2900) => ({ type: "plain_text", text: String(value || " ").slice(0, limit) });
-const choices = (job) => job.canvasBusy && job.status === "running" ? ["status", "pause"] :
-    (buttons[job.status] || []).filter((action) => action !== "canvas" || !job.canvasBusy);
 
 export function renderResearch(job) {
     const heading = researchText("UI_HEADING", { title: job.title || researchText("UI_UNTITLED") });
@@ -25,6 +19,18 @@ export function renderResearch(job) {
         { type: "section",
             text: plain(job.stage ? researchText("UI_STATUS_LINE", { status, stage: job.stage }) : status) },
     ];
+    const progress = job.progress || { sources: 0, reports: job.reports?.length || 0, activeTasks: [] };
+    const details = [researchText("UI_ROUND_PROGRESS", {
+        round: job.round || 1, sources: progress.sources, reports: progress.reports,
+    })];
+    const phaseStartedAt = progress.phaseStartedAt || job.phaseStartedAt;
+    if (Number.isFinite(phaseStartedAt)) {
+        details.push(researchText("UI_PHASE_STARTED", { time: new Date(phaseStartedAt).toISOString() }));
+    }
+    for (const task of progress.activeTasks || []) {
+        details.push(researchText("UI_ACTIVE_TASK", { provider: task.provider, stage: task.stage }));
+    }
+    blocks.push({ type: "context", elements: [plain(details.join("\n"))] });
     for (let offset = 0; offset < (job.brief || "").length; offset += 2900) {
         blocks.push({ type: "section", text: plain(job.brief.slice(offset, offset + 2900)) });
     }
@@ -32,7 +38,7 @@ export function renderResearch(job) {
         blocks.push({ type: "section", text: plain(question) });
     }
     if (job.error) blocks.push({ type: "section", text: plain(job.error) });
-    const actions = choices(job);
+    const actions = researchActions(job);
     if (actions.length) blocks.push({
         type: "actions", block_id: `research_${job.id}_${job.revision}`,
         elements: actions.map((action) => ({
@@ -52,7 +58,8 @@ export function createResearchSlack({ client, state, config, control, reply }) {
         const next = previous.catch(() => {}).then(async () => {
             const current = get(job.id);
             if (!current) return;
-            const message = { channel: current.channel, ...renderResearch(current) };
+            const progress = researchProgress(current, state.snapshot());
+            const message = { channel: current.channel, ...renderResearch({ ...current, progress }) };
             if (current.messageTs) return client.chat.update({ ...message, ts: current.messageTs });
             const sent = await client.chat.postMessage({
                 ...message, thread_ts: current.thread, unfurl_links: false, unfurl_media: false,
@@ -79,7 +86,7 @@ export function createResearchSlack({ client, state, config, control, reply }) {
             throw Error(researchText("UI_UNAUTHORIZED"));
         }
         if (!messageTs || messageTs !== job.messageTs || ref.revision !== job.revision ||
-            !choices(job).includes(action)) {
+            !researchActions(job).includes(action)) {
             throw Error(researchText("UI_EXPIRED"));
         }
         return job;

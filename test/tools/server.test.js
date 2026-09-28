@@ -92,3 +92,40 @@ test("research grants", async (t) => {
     data.researchJobs.job.runId = "replacement";
     await assert.rejects(client.listTools());
 });
+
+test("control grants", async (t) => {
+    const owner = { id: "task", team: "T1", user: "U1", channel: "C1" };
+    const data = { tasks: { task: { status: "running" } }, researchJobs: {
+        job: { ...owner, runId: "run", status: "running" },
+    } };
+    const names = ["research_status", "research_propose", "research_control", "research_result",
+        "research_source_save", "research_report_read"];
+    const bridge = createToolServer({ state: { snapshot: () => data }, personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: {} } }),
+        tools: { definitions: names.map((name) => ({ name, inputSchema: { type: "object" } })),
+            call: async () => ({ accepted: true }) },
+    });
+    await new Promise((resolve) => bridge.server.listen(0, "127.0.0.1", resolve));
+    t.after(async () => {
+        bridge.server.closeAllConnections();
+        await new Promise((resolve) => bridge.server.close(resolve));
+    });
+    const url = new URL(`http://127.0.0.1:${bridge.server.address().port}/mcp`);
+    const research = { researchId: "job", researchRunId: "run", researchStage: "clarify" };
+    for (const [extra, allowed] of [[{}, names.slice(0, 4)], [{ scheduleId: "schedule" }, []],
+        [research, ["research_report_read"]]]) {
+        const grant = bridge.grant({ ...owner, ...extra });
+        const client = new Client({ name: "test", version: "1" });
+        try {
+            await client.connect(new StreamableHTTPClientTransport(url, {
+                requestInit: { headers: { Authorization: "Bearer " + grant.token } },
+            }));
+            assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name), allowed);
+            const result = await client.callTool({ name: "research_control", arguments: {} });
+            assert.equal(result.isError === true, !allowed.includes("research_control"));
+        } finally {
+            await client.close();
+            grant.revoke();
+        }
+    }
+});

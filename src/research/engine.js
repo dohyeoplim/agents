@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { appendTask } from "../tasks/runtime.js";
 import { researchText } from "./copy.js";
+import { researchAncestors } from "./library.js";
 
 const clarification = z.object({ ready: z.boolean(), title: z.string().trim().min(1).max(150),
     brief: z.string().trim().min(1).max(6000), questions: z.array(z.string().trim().min(1).max(500)).max(3),
@@ -15,7 +16,7 @@ export function researchOutput(text, kind) {
     catch { throw Error(researchText("RESEARCH_OUTPUT_INVALID", { kind })); }
 }
 
-export function createResearchEngine({ state, execute, library, publish, post }) {
+export function createResearchEngine({ state, execute, library, publish, post, now = Date.now }) {
     const get = (id) => state.snapshot().researchJobs[id];
 
     async function update(id, runId, changes, scopeVersion) {
@@ -25,7 +26,9 @@ export function createResearchEngine({ state, execute, library, publish, post })
                 throw Error(researchText("RESEARCH_STOPPED"));
             }
             if (scopeVersion !== undefined && (job.scopeVersion || 0) !== scopeVersion) return null;
-            Object.assign(job, changes, { updatedAt: Date.now(), revision: job.revision + 1 });
+            const now = Date.now();
+            if (changes.stage !== undefined && changes.stage !== job.stage) job.phaseStartedAt = now;
+            Object.assign(job, changes, { updatedAt: now, revision: job.revision + 1 });
             return job;
         });
         if (result) await publish(result);
@@ -39,7 +42,10 @@ export function createResearchEngine({ state, execute, library, publish, post })
         const independent = ["explore", "counter"].includes(researchStage);
         const reports = (job.reports || []).filter((report) =>
             !independent || report.provider === provider).slice(-12);
+        const parent = researchAncestors(state.snapshot(), job)[0];
         const prompt = JSON.stringify({ researchId: id, title: job.title,
+            ...(parent ? { parentId: parent.id, previousRound: { title: parent.title, brief: parent.brief,
+                finalReportId: parent.finalReportId } } : {}),
             ...(researchStage === "clarify" ? {
                 request: job.request, questions: job.questions, answers: job.answers || [],
                 conversation: { channel: job.channel, thread: job.thread, messageTs: job.sourceMessageTs },
@@ -56,6 +62,7 @@ export function createResearchEngine({ state, execute, library, publish, post })
             return Object.assign(data.tasks[taskId], { status: "running", startedAt: Date.now(),
                 researchId: id, researchRunId: runId, researchStage, provider });
         });
+        await publish(get(id));
         let result;
         try {
             result = await execute(task, signal);
@@ -65,6 +72,7 @@ export function createResearchEngine({ state, execute, library, publish, post })
                 Object.assign(data.tasks[task.id], { status: "completed", delivery: "suppressed",
                     session: result.session, reportId: report.id, finishedAt: Date.now() });
             });
+            if (get(id).runId === runId) await publish(get(id));
             return { ...report, text: result.answer };
         } catch (error) {
             await state.update((data) => {
@@ -85,7 +93,7 @@ export function createResearchEngine({ state, execute, library, publish, post })
             const result = await stage(job.id, job.runId, "clarify", "codex", signal);
             const plan = researchOutput(result.text, "clarify");
             const updated = await update(job.id, job.runId, {
-                ...plan, status: plan.ready ? "ready" : "awaiting_input", stage: "",
+                ...plan, status: plan.ready ? "ready" : "awaiting_input", stage: "", confirmationAfter: now(),
             }, version);
             if (updated) return;
         }

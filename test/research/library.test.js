@@ -121,3 +121,80 @@ test("provider isolation", async (t) => {
     assert.equal((await library.read({ id: b.id }, synthesis)).text, "Evidence");
     assert.equal((await tools.call("research_report_read", { id: reportB.id }, synthesis)).text, "Claude findings");
 });
+
+test("ancestor evidence", async (t) => {
+    const { library, context, job, state } = await fixture(t);
+    const prior = await library.save(source, { ...context, provider: "claude", researchStage: "counter" });
+    const draft = await library.saveReport(job, "counter", "Prior draft", { provider: "claude" });
+    const final = await library.saveReport(job, "revise", "Prior final", { provider: "claude" });
+    await state.update((data) => {
+        Object.assign(data.researchJobs.job, { status: "completed", finalReportId: final.id });
+        data.researchJobs.next = { ...job, id: "next", parentId: job.id };
+        data.researchJobs.last = { ...job, id: "last", parentId: "next" };
+    });
+    const next = { ...context, researchId: "next", provider: "codex", researchStage: "explore" };
+    const current = await library.save({ ...source, text: "New finding" }, next);
+    const opposing = await library.save(source, { ...next, provider: "claude", researchStage: "counter" });
+    const found = library.search({}, next);
+    assert.deepEqual(new Set(found.sources.map((item) => item.id)), new Set([prior.id, current.id]));
+    assert.deepEqual(found.reports.map((item) => item.id), [final.id]);
+    assert.equal(found.reports[0].researchId, job.id);
+    assert.equal(found.reports[0].inherited, true);
+    assert.equal((await library.read({ id: prior.id }, next)).text, source.text);
+    assert.equal((await library.report({ id: final.id }, next)).text, "Prior final");
+    assert.equal((await library.readReport(state.snapshot().researchJobs.next, final.id)).text, "Prior final");
+    await assert.rejects(library.report({ id: draft.id }, next), /unavailable/);
+    await assert.rejects(library.read({ id: opposing.id }, next), /unavailable/);
+    const nextFinal = await library.saveReport(state.snapshot().researchJobs.next, "synthesize", "Next final");
+    await state.update((data) => {
+        Object.assign(data.researchJobs.next, { status: "completed", finalReportId: nextFinal.id });
+    });
+    const last = { ...next, researchId: "last" };
+    assert.deepEqual(library.search({}, last).reports.map((item) => item.id), [nextFinal.id, final.id]);
+    assert.equal((await library.read({ id: prior.id }, last)).text, source.text);
+    assert.equal(Object.keys(state.snapshot().researchSources).length, 3);
+});
+
+test("ancestor boundaries", async (t) => {
+    const { library, context, job, state } = await fixture(t);
+    const prior = await library.save(source, context);
+    const final = await library.saveReport(job, "synthesize", "Final");
+    await state.update((data) => {
+        Object.assign(data.researchJobs.job, { status: "completed", finalReportId: final.id, thread: "1" });
+        data.researchJobs.next = { ...job, id: "next", parentId: job.id, thread: "1" };
+    });
+    const next = { ...context, researchId: "next" };
+    for (const changes of [{ team: "other" }, { user: "other" }, { channel: "other" },
+        { thread: "other" }, { status: "running" }, { finalReportId: "missing" }]) {
+        const original = state.snapshot().researchJobs.job;
+        await state.update((data) => { Object.assign(data.researchJobs.job, changes); });
+        assert.equal(library.search({}, next).sources.length, 0);
+        await assert.rejects(library.read({ id: prior.id }, next), /unavailable/);
+        await assert.rejects(library.report({ id: final.id }, next), /unavailable/);
+        await state.update((data) => { data.researchJobs.job = original; });
+    }
+    await state.update((data) => { data.researchJobs.job.parentId = "job"; });
+    assert.equal(library.search({}, next).reports.length, 1);
+    await state.update((data) => { data.researchJobs.next.parentId = "missing"; });
+    assert.equal(library.search({}, next).reports.length, 0);
+});
+
+test("ancestor export", async (t) => {
+    const { library, context, job, state } = await fixture(t);
+    const prior = await library.save(source, context);
+    const final = await library.saveReport(job, "synthesize", "Final before export");
+    await state.update((data) => {
+        Object.assign(data.researchJobs.job, { status: "completed", finalReportId: final.id });
+        data.researchJobs.next = { ...job, id: "next", parentId: job.id };
+    });
+    const next = { ...context, researchId: "next", provider: "claude", researchStage: "counter" };
+    for (const status of ["queued", "running", "paused", "failed", "interrupted"]) {
+        await state.update((data) => { Object.assign(data.researchJobs.job, { status, mode: "canvas" }); });
+        assert.deepEqual(library.search({}, next).sources.map((item) => item.id), [prior.id]);
+        assert.equal((await library.report({ id: final.id }, next)).text, "Final before export");
+        assert.equal((await library.read({ id: prior.id }, next)).text, source.text);
+    }
+    await state.update((data) => { data.researchJobs.job.mode = "run"; });
+    assert.equal(library.search({}, next).sources.length, 0);
+    await assert.rejects(library.report({ id: final.id }, next), /unavailable/);
+});

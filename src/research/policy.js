@@ -5,8 +5,14 @@ export const researchTools = ["slack_messages_read", "slack_messages_search", "s
     "research_source_save", "research_sources_search", "research_source_read", "research_report_read"];
 
 const canvasWrites = ["slack_canvas_create", "slack_canvas_bind", "slack_canvas_update"];
+const controls = ["research_status", "research_propose", "research_control", "research_result"];
+const clarificationTools = ["slack_messages_read", "slack_messages_search", "slack_message_read",
+    "slack_canvas_find", "slack_canvas_read", "research_sources_search", "research_source_read",
+    "research_report_read"];
 
 export function researchToolAllowed(task, name) {
-    if (!task.researchId) return !name.startsWith("research_");
+    if (!task.researchId) return !name.startsWith("research_") ||
+        (!task.scheduleId && !task.briefingDate && controls.includes(name));
+    if (task.researchStage === "clarify") return clarificationTools.includes(name);
     return researchTools.includes(name) || (task.researchStage === "canvas" && canvasWrites.includes(name));
 }

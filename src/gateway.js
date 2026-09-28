@@ -70,7 +70,11 @@ const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: cr
 const history = createSlackHistory({ token: process.env.SLACK_BOT_TOKEN, workspaceUrl: identity.url });
 const historyContext = createHistoryContext({ state, history });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
-    arxiv, library, state, canvases, history, research: researchLibrary });
+    arxiv, library, state, canvases, history, research: researchLibrary,
+    researchControl: {
+        inspect: (...args) => research.inspect(...args), propose: (...args) => research.propose(...args),
+        act: (...args) => research.act(...args), readResult: (...args) => research.readResult(...args),
+    } });
 const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,
     healthy: async () => !runtime.closed && !runtime.broken && await state.healthy() });
 const briefingContext = createBriefingContext({ tools, personal: loadPersonal });

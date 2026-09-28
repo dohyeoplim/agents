@@ -28,6 +28,35 @@ function visible(record, context) {
     return !["explore", "counter"].includes(context.researchStage) || record.provider === context.provider;
 }
 
+export function researchAncestors(data, job) {
+    const ancestors = [];
+    const visited = new Set([job.id]);
+    let parentId = job.parentId;
+    while (parentId && !visited.has(parentId)) {
+        const parent = data.researchJobs?.[parentId];
+        if (!owned(parent, job) || parent.thread !== job.thread ||
+            (parent.status !== "completed" && parent.mode !== "canvas") ||
+            !parent.reports?.some((report) => report.id === parent.finalReportId)) break;
+        visited.add(parentId);
+        ancestors.push(parent);
+        parentId = parent.parentId;
+    }
+    return ancestors;
+}
+
+function reportsFor(data, job, context) {
+    return [...(job.reports || []).filter((report) => visible(report, context)),
+        ...researchAncestors(data, job).flatMap((parent) => parent.reports
+            .filter((report) => report.id === parent.finalReportId)
+            .map((report) => ({ ...report, researchId: parent.id, inherited: true })))];
+}
+
+function sourceVisible(data, job, source, context) {
+    if (!owned(source, context)) return false;
+    if (source.researchId === job.id) return visible(source, context);
+    return researchAncestors(data, job).some((parent) => parent.id === source.researchId);
+}
+
 function authorize(data, context, writing = false) {
     const job = data.researchJobs?.[context.researchId];
     if (!owned(job, context)) throw Error("Research is unavailable in this task");
@@ -76,24 +105,24 @@ export function createResearchLibrary({ state, artifacts }) {
         const job = authorize(data, context);
         const needle = query.toLowerCase();
         const matches = Object.values(data.researchSources || {}).filter((source) =>
-            source.researchId === context.researchId && owned(source, context) && visible(source, context) &&
+            sourceVisible(data, job, source, context) &&
             [source.title, source.url, source.claim, source.locator, source.excerpt]
                 .some((value) => value?.toLowerCase().includes(needle)))
             .sort((a, b) => a.updatedAt - b.updatedAt || a.id.localeCompare(b.id));
         const end = offset + limit;
         return { sources: matches.slice(offset, end), offset,
             nextOffset: end < matches.length ? end : null,
-            reports: (job.reports || []).filter((item) => visible(item, context)),
+            reports: reportsFor(data, job, context),
             total: matches.length, truncated: end < matches.length,
-            coverage: "Current research only. Matches titles, URLs, claims, locators and first 1000 text characters." };
+            coverage: "Current round and completed ancestors. Matches metadata and first 1000 text characters." };
     }
 
     async function read(input, context) {
         const { id, offset } = sourceReadInput.parse(input);
         const data = state.snapshot();
-        authorize(data, context);
+        const job = authorize(data, context);
         const source = data.researchSources?.[id];
-        if (!owned(source, context) || source.researchId !== context.researchId || !visible(source, context)) {
+        if (!sourceVisible(data, job, source, context)) {
             throw Error("Research source is unavailable");
         }
         const artifact = await artifacts.get(source.artifactId);
@@ -121,6 +150,7 @@ export function createResearchLibrary({ state, artifacts }) {
             const existing = current.reports.find((report) => report.id === artifact.id);
             if (existing) return existing;
             const report = { id: artifact.id, artifactId: artifact.id, stage, provider, runId: job.runId,
+                researchId: job.id,
                 length: text.length,
                 createdAt: Date.now() };
             current.reports.push(report);
@@ -130,11 +160,13 @@ export function createResearchLibrary({ state, artifacts }) {
 
     async function readReport(job, reportId, start = 0) {
         const { id, offset } = sourceReadInput.parse({ id: reportId, offset: start });
-        const current = authorize(state.snapshot(), { ...job, researchId: job.id });
-        const report = current.reports?.find((report) => report.id === id);
+        const data = state.snapshot();
+        const context = { ...job, researchId: job.id };
+        const current = authorize(data, context);
+        const report = reportsFor(data, current, context).find((report) => report.id === id);
         if (!report) throw Error("Research report is unavailable");
         const artifact = await artifacts.get(report.artifactId);
-        if (artifact.source.provider !== "research" || artifact.source.fileId !== job.id ||
+        if (artifact.source.provider !== "research" || artifact.source.fileId !== (report.researchId || job.id) ||
             artifact.source.channel !== job.channel || artifact.source.kind !== report.stage) {
             throw Error("Research report integrity check failed");
         }
@@ -143,10 +175,8 @@ export function createResearchLibrary({ state, artifacts }) {
 
     async function report(args, context) {
         const job = authorize(state.snapshot(), context);
-        if (!job.reports?.some((item) => item.id === args.id && visible(item, context))) {
-            throw Error("Research report is unavailable");
-        }
-        return readReport({ ...job, id: context.researchId }, args.id, args.offset);
+        return readReport({ ...job, researchStage: context.researchStage, provider: context.provider },
+            args.id, args.offset);
     }
 
     return { save, search, read, saveReport, readReport, report };
