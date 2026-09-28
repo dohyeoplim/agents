@@ -34,11 +34,19 @@ export function createArxiv({ request = fetch, now = Date.now, interval = 3100 }
     const cache = new Map();
     let last = -Infinity;
     const get = (url, signal, limit) => queue.run(async () => {
-        const wait = interval - (now() - last);
-        if (wait > 0) await delay(wait, undefined, { signal });
-        signal?.throwIfAborted();
-        last = now();
-        return fetchBytes(url, { request, signal, limit, hosts: ["arxiv.org", "www.arxiv.org", "export.arxiv.org"] });
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const wait = interval - (now() - last);
+            if (wait > 0) await delay(wait, undefined, { signal });
+            signal?.throwIfAborted();
+            last = now();
+            try {
+                return await fetchBytes(url, { request, signal, limit,
+                    hosts: ["arxiv.org", "www.arxiv.org", "export.arxiv.org"] });
+            } catch (error) {
+                const transient = error instanceof TypeError || error.name === "TimeoutError" || error.status >= 500;
+                if (signal?.aborted || !transient || attempt === 2) throw error;
+            }
+        }
     });
     async function search({ query, days = 7, limit = 15, ids }, signal) {
         if (!ids && (typeof query !== "string" || !query.trim())) throw Error("Provide an arXiv search query");

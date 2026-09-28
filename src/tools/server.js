@@ -16,7 +16,7 @@ export function createToolServer({ tools, state, config, personal, now = Date.no
         if (req.url !== "/mcp" || req.method !== "POST" || req.headers.origin) return reject(404);
         const token = req.headers.authorization?.replace(/^Bearer /, "");
         const access = grants.get(token);
-        if (!access || access.until <= now() || access.signal?.aborted) return reject(401);
+        if (!access || access.signal?.aborted) return reject(401);
         try {
             const current = await config();
             const settings = await personal();
@@ -25,6 +25,7 @@ export function createToolServer({ tools, state, config, personal, now = Date.no
             if (task.team !== current.team || !current.users.includes(task.user) || !route || route.enabled === false ||
                 task.user !== (settings?.owner || current.users[0]) ||
                 state.snapshot().tasks[task.id]?.status !== "running") return reject(403);
+            if (access.until <= now()) access.until = now() + 12 * 60000;
             const parts = [];
             let size = 0;
             for await (const part of req) {

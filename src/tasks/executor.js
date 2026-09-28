@@ -16,7 +16,7 @@ export function createTaskExecutor({
             throw Error("Task is no longer authorized");
         }
         const endpoint = "http://" + route.agent + ":8080";
-        const grant = toolServer?.grant(task, signal);
+        let grant;
         const abort = () => {
             request(endpoint + "/cancel", {
                 method: "POST", headers: { "Content-Type": "application/json" },
@@ -36,6 +36,7 @@ export function createTaskExecutor({
                 const sourceContext = task.briefingDate ? await briefingContext(task, signal) :
                     resourceContext(sources, task.prompt);
                 if (signal.aborted) throw Error("Task cancelled");
+                grant = toolServer?.grant(task, signal);
                 const response = await request(endpoint + "/run", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

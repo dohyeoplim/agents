@@ -37,3 +37,21 @@ test("worker access", async () => {
     });
     await assert.rejects(execute(task, new AbortController().signal), /no longer authorized/);
 });
+
+test("tool grant lifetime", async () => {
+    const events = [];
+    const execute = createTaskExecutor({ state: { snapshot: () => ({}) },
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
+        briefingContext: async () => { events.push("prepare"); return "{}"; },
+        toolServer: { grant: () => {
+            events.push("grant");
+            return { token: "test", revoke: () => events.push("revoke") };
+        } },
+        request: async () => {
+            events.push("run");
+            return { ok: true, json: async () => ({ session, answer: "Done" }) };
+        },
+    });
+    await execute({ ...task, briefingDate: "2026-01-01" }, new AbortController().signal);
+    assert.deepEqual(events, ["prepare", "grant", "run", "revoke"]);
+});

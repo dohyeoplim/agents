@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
 import { create } from "tar";
-import { paperId, parseFeed } from "../../src/papers/arxiv.js";
+import { paperId, parseFeed, createArxiv } from "../../src/papers/arxiv.js";
 import { readSource } from "../../src/papers/source.js";
 import { createLibrary } from "../../src/papers/library.js";
 
@@ -24,6 +24,36 @@ test("paper feed", () => {
     assert.equal(result[0].id, "2401.12345v1");
     assert.deepEqual(result[0].categories, ["cs.CV"]);
     assert.throws(() => parseFeed('<!DOCTYPE x [<!ENTITY x SYSTEM "file:///secret">]><feed/>'));
+});
+
+test("search retry", async () => {
+    let calls = 0;
+    const arxiv = createArxiv({ interval: 0, request: async () => {
+        if (++calls < 3) throw TypeError("fetch failed");
+        return new Response('<feed xmlns="http://www.w3.org/2005/Atom"><title>arXiv</title></feed>');
+    } });
+    assert.deepEqual(await arxiv.search({ query: "all:test" }), []);
+    assert.equal(calls, 3);
+    await arxiv.search({ query: "all:test" });
+    assert.equal(calls, 3);
+    const limited = createArxiv({ interval: 0, request: async () => {
+        calls++;
+        return new Response(null, { status: 429 });
+    } });
+    await assert.rejects(limited.search({ query: "all:test" }), /rate limit/);
+    assert.equal(calls, 4);
+});
+
+test("retry cancellation", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const arxiv = createArxiv({ interval: 0, request: async () => {
+        calls++;
+        controller.abort();
+        throw TypeError("fetch failed");
+    } });
+    await assert.rejects(arxiv.search({ query: "all:test" }, controller.signal));
+    assert.equal(calls, 1);
 });
 
 test("source archive", async (t) => {

@@ -16,8 +16,8 @@ export async function fetchBytes(url, {
         }
         if (!response.ok) {
             await response.body?.cancel();
-            throw Error(response.status === 429 ? "Provider rate limit reached; try again later" :
-                `Provider request failed (${response.status})`);
+            throw Object.assign(Error(response.status === 429 ? "Provider rate limit reached; try again later" :
+                `Provider request failed (${response.status})`), { status: response.status });
         }
         if (Number(response.headers.get("content-length")) > limit) {
             await response.body?.cancel();
