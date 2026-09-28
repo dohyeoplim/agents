@@ -62,6 +62,7 @@
     "RESEARCH_DETAILS_LIMIT": "Research details are too long. Start a new Slack thread.",
     "RESEARCH_UPDATES_LIMIT": "Too many scope updates. Pause and edit the research brief.",
     "RESEARCH_UPDATE_SAVED": "추가 내용을 저장했습니다. 다음 조사 단계부터 반영합니다.",
+    "RESEARCH_CLARIFICATION_UPDATED": "추가 내용을 반영해 조사 범위를 정리하고 있습니다. 준비되면 Start 버튼이 표시됩니다.",
     "RESEARCH_INTERRUPTED": "Research was interrupted. Resume to continue using the saved materials.",
     "RESEARCH_OUTPUT_INVALID": "Invalid {{kind}} result. Resume to retry this stage.",
     "RESEARCH_SCOPE_LIMIT": "Research scope is too long. Shorten it with Edit.",

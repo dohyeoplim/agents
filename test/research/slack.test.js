@@ -56,6 +56,16 @@ test("completion actions", () => {
     assert.equal(result.blocks[2].text.text.length, 2900);
 });
 
+test("clarification actions", async () => {
+    for (const action of ["status", "pause"]) {
+        const { job, click, calls } = fixture({ status: "clarifying" });
+        assert.deepEqual(renderResearch(job).blocks.at(-1).elements.map((button) => button.text.text),
+            ["Status", "Pause"]);
+        await click(action);
+        assert.equal(calls.find(([kind]) => kind === "control")[2], action);
+    }
+});
+
 test("status publishing", async () => {
     const { job, ui, calls } = fixture({ messageTs: undefined });
     const first = ui.publish(job);

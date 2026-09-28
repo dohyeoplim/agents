@@ -3,7 +3,7 @@ import { profileFor } from "../agents/profiles.js";
 import { researchText } from "./copy.js";
 
 const buttons = {
-    clarifying: [], awaiting_input: ["reply"], ready: ["start", "edit"], queued: ["status", "pause"],
+    clarifying: ["status", "pause"], awaiting_input: ["reply"], ready: ["start", "edit"], queued: ["status", "pause"],
     running: ["status", "pause", "summarize", "finish"], paused: ["resume", "edit"],
     interrupted: ["resume", "edit"], failed: ["resume", "edit"], completed: ["more", "canvas"],
 };

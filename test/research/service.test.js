@@ -203,6 +203,7 @@ test("clarification steering", async () => {
     await f.service.handle(context, "!research Compare methods", "event1");
     await started.promise;
     await f.service.handle(context, "Only open-source methods", "event2");
+    assert.match(f.sent.at(-1).text, /준비되면 Start/);
     release.resolve();
     await f.service.idle();
     assert.equal(attempts, 2);

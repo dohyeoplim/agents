@@ -237,7 +237,8 @@ export function createResearch({ state, execute, library, config, post, personal
                 }
                 current.fileIds = context.fileIds || current.fileIds;
             });
-            await send(updated, researchText("RESEARCH_UPDATE_SAVED"));
+            await send(updated, researchText(updated.status === "clarifying" ?
+                "RESEARCH_CLARIFICATION_UPDATED" : "RESEARCH_UPDATE_SAVED"));
             await publish(updated);
         }
         await state.update((data) => {
