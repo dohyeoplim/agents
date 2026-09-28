@@ -1,9 +1,14 @@
+import { createHash } from "node:crypto";
 import { isFileId, slackFileIds, fileKind, fileChannels } from "./identifiers.js";
 import { readDocument } from "./reader.js";
 import { imageInput, imageType } from "./images.js";
 
 const maxBytes = 5 * 1024 * 1024;
 const fileHosts = new Set(["files.slack.com", "files-origin.slack.com"]);
+
+export function isCanvasFile(file) {
+    return ["canvas", "quip"].includes(file.filetype) || file.mimetype === "application/vnd.slack-docs";
+}
 
 export function flattenBookmarks(bookmarks, parentId = null) {
     const result = [];
@@ -114,13 +119,14 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
         throw Error("Too many file redirects");
     }
 
-    async function read(channel, id, signal) {
+    async function read(channel, id, signal, { fresh = false, canvasOnly = false } = {}) {
         if (!isFileId(id)) throw Error("Invalid Slack file ID");
         const { file } = await call("files.info", { file: id }, signal);
         if (!file || file.id !== id || !fileChannels(file).has(channel)) {
             throw Error("Share the file with this channel before reading it");
         }
         if (file.is_external) throw Error("External files need access to their original provider");
+        if (canvasOnly && !isCanvasFile(file)) throw Error("The selected file is not a Slack Canvas");
         const kind = fileKind(file);
         if (!kind) throw Error("Supported formats: Canvas, PDF, HTML, Markdown, text, PNG, JPEG and WebP");
         if (file.size > maxBytes) throw Error("File exceeds the 5 MB limit");
@@ -137,12 +143,14 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
                 text: "Attached image provided to the model.", image: imageInput(data),
                 embedded: [], truncated: false, ...(artifacts ? { artifacts: saved } : {}) };
         }
-        const cacheKey = JSON.stringify([channel, version]);
-        let parsed = texts.get(cacheKey);
+        const title = file.title || file.name || id;
+        const cacheKey = JSON.stringify([channel, version, title]);
+        let parsed = fresh ? undefined : texts.get(cacheKey);
         if (!parsed || parsed.until <= Date.now()) {
             const url = file.url_private_download || file.url_private;
             if (!url) throw Error("Slack did not provide a readable file URL");
             const data = await download(url, signal);
+            const revision = createHash("sha256").update(JSON.stringify(title)).update("\0").update(data).digest("hex");
             const saved = [];
             if (artifacts) {
                 const mime = { pdf: "application/pdf", html: "text/html", text: "text/plain" }[kind];
@@ -154,12 +162,12 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
                     mime: "text/plain", source: { ...source, kind: "extracted" },
                 }));
             }
-            parsed = { ...result, artifacts: saved, until: Date.now() + 60000 };
+            parsed = { ...result, revision, artifacts: saved, until: Date.now() + 60000 };
             texts.set(cacheKey, parsed);
             if (texts.size > 50) texts.delete(texts.keys().next().value);
         }
         return {
-            id, title: file.title || file.name || id, url: file.permalink,
+            id, title, url: file.permalink, revision: parsed.revision,
             text: parsed.text, truncated: parsed.truncated, embedded: parsed.embedded || [],
             ...(artifacts ? { artifacts: parsed.artifacts } : {}),
         };

@@ -21,6 +21,7 @@ import { startBriefings } from "./briefings/scheduler.js";
 import { createBriefingContext } from "./briefings/context.js";
 import { createDelivery } from "./briefings/delivery.js";
 import { createCanvases } from "./slack/canvases.js";
+import { createCanvasWorkspace } from "./slack/canvas-workspace.js";
 
 const config = await loadConfig();
 const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
@@ -57,7 +58,8 @@ const resources = createSlackResources({ token: process.env.SLACK_BOT_TOKEN, art
 const streams = createSlackStreams({ state, token: process.env.SLACK_BOT_TOKEN, post });
 const arxiv = createArxiv();
 const library = createLibrary({ arxiv, state });
-const canvases = createCanvases({ token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl: identity.url });
+const canvasOptions = { token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl: identity.url };
+const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: createCanvases(canvasOptions).create });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
     arxiv, library, state, canvases });
 const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,

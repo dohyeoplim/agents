@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { preferenceContext } from "../integrations/settings.js";
 import { paperId } from "../papers/arxiv.js";
-import { canvasInput } from "../slack/canvases.js";
+import { createInput, findInput, readInput, bindInput, updateInput } from "../slack/canvas-input.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
@@ -11,10 +11,40 @@ export function createTools({ personal, weather, calendar, arxiv, library, state
         slack_canvas_create: {
             description: "Create a Slack canvas with a title and Markdown body in the current channel's tabs. " +
                 "Use when the user requests a canvas. Channel members receive edit access. Return the URL. " +
-                "Do not retry an unknown outcome or claim to edit an existing canvas with this tool.",
-            schema: canvasInput,
+                "Find existing canvases first. An optional purpose connects the document across threads.",
+            schema: createInput,
             readOnly: false,
             run: (args, context, signal) => canvases.create(args, context, signal),
+        },
+        slack_canvas_find: {
+            description: "Find canvases shared with the current channel, including saved purpose bindings. " +
+                "Follow nextPage before concluding a canvas does not exist.",
+            schema: findInput,
+            run: (args, context, signal) => canvases.find(args, context, signal),
+        },
+        slack_canvas_read: {
+            description: "Read fresh canvas text, a revision receipt, and optionally section IDs matching query. " +
+                "Follow nextOffset with readId. Section IDs identify blocks, not all content beneath a heading.",
+            schema: readInput,
+            run: (args, context, signal) => canvases.read(args, context, signal),
+        },
+        slack_canvas_bind: {
+            description: "Connect an existing channel canvas to a purpose such as study notes across threads. " +
+                "Replacing an existing binding requires its current replaceCanvasId. " +
+                "Supply creationChangeId to reconcile an uncertain creation with the identified document.",
+            schema: bindInput,
+            readOnly: false,
+            run: (args, context, signal) => canvases.bind(args, context, signal),
+        },
+        slack_canvas_update: {
+            description: "Apply one canvas edit using a recent readId and section IDs from that read. " +
+                "Read and compare the returned content to verify. Whole-document replacement requires an explicit " +
+                "rewrite request. Resolve uncertain edits only after inspecting the document and obtaining a clear " +
+                "outcome; never use resolve merely to bypass an unknown result.",
+            schema: updateInput,
+            readOnly: false,
+            destructive: true,
+            run: (args, context, signal) => canvases.update(args, context, signal),
         },
         briefing_preferences: {
             description: "Read private research preferences, briefing timezone and provider configuration status.",
@@ -83,8 +113,8 @@ export function createTools({ personal, weather, calendar, arxiv, library, state
     };
     return {
         definitions: Object.entries(tools).map(([name, tool]) => ({ name, description: tool.description,
-            inputSchema: z.toJSONSchema(tool.schema, { io: "input" }),
-            annotations: { readOnlyHint: tool.readOnly !== false, destructiveHint: false,
+            inputSchema: { type: "object", ...z.toJSONSchema(tool.schema, { io: "input" }) },
+            annotations: { readOnlyHint: tool.readOnly !== false, destructiveHint: tool.destructive === true,
                 openWorldHint: true, idempotentHint: tool.readOnly !== false } })),
         async call(name, args, context, signal) {
             if (!Object.hasOwn(tools, name)) throw Error("Unknown tool");

@@ -67,6 +67,68 @@ test("resource refresh", async () => {
     await assert.rejects(resources.read("C1", id), /file_not_found/);
 });
 
+test("fresh Canvas reads bypass cached content with unchanged file metadata and preserve artifacts", async () => {
+    const saved = [];
+    const { resources, edit } = fixture({
+        file: { filetype: "canvas", updated: 1 },
+        artifacts: { put: async (data, metadata) => {
+            saved.push({ data, metadata });
+            return { id: String(saved.length) };
+        } },
+    });
+    const first = await resources.read("C1", id, undefined, { canvasOnly: true });
+    const cached = await resources.read("C1", id);
+    assert.match(first.revision, /^[a-f0-9]{64}$/);
+    assert.equal(first.revision, cached.revision);
+    edit();
+    assert.equal((await resources.read("C1", id)).text, first.text);
+    const fresh = await resources.read("C1", id, undefined, { fresh: true, canvasOnly: true });
+    assert.notEqual(fresh.text, first.text);
+    assert.notEqual(fresh.revision, first.revision);
+    assert.equal(saved.length, 4);
+    assert.equal(saved[2].data.toString(), fresh.text);
+    assert.equal(fresh.artifacts.length, 2);
+    assert.equal((await resources.read("C1", id)).revision, fresh.revision);
+});
+
+test("Canvas reads reject ordinary HTML and accept Slack Canvas metadata", async () => {
+    const { resources, calls } = fixture({ file: { filetype: "html", mimetype: "text/html" } });
+    await assert.rejects(resources.read("C1", id, undefined, { canvasOnly: true }), /not a Slack Canvas/);
+    assert.ok(calls.every((call) => call.url.hostname === "slack.com"));
+    for (const file of [{ filetype: "canvas" }, { filetype: "quip" },
+        { mimetype: "application/vnd.slack-docs" }]) {
+        const canvas = fixture({ file });
+        assert.ok((await canvas.resources.read("C1", id, undefined, { canvasOnly: true })).revision);
+    }
+});
+
+test("document revisions detect raw formatting and title changes without artifact storage", async () => {
+    let content = "<p>Hello</p>";
+    let title = "Notes";
+    const resources = createSlackResources({
+        token: "secret",
+        request: async (url) => {
+            if (url.startsWith("https://files.slack.com/")) return new Response(content);
+            return Response.json({ ok: true, file: {
+                id, title, channels: ["C1"], filetype: "canvas", updated: 1,
+                url_private: "https://files.slack.com/canvas.html",
+            } });
+        },
+        extract: async () => ({ text: "Hello", truncated: false }),
+    });
+    const read = () => resources.read("C1", id, undefined, { fresh: true, canvasOnly: true });
+    const first = await read();
+    assert.equal((await read()).revision, first.revision);
+    content = "<p><b>Hello</b></p>";
+    const formatted = await read();
+    assert.equal(formatted.text, first.text);
+    assert.notEqual(formatted.revision, first.revision);
+    title = "Renamed notes";
+    const renamed = await resources.read("C1", id);
+    assert.equal(renamed.title, title);
+    assert.notEqual(renamed.revision, formatted.revision);
+});
+
 test("external sources", async () => {
     const { resources, calls } = fixture({ bookmarks: [
         { id: "B1", type: "link", title: "Drive", link: "https://drive.google.com/file/test" },

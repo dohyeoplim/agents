@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const [worker, briefing] = await Promise.all(["worker", "briefing"].map((name) =>
+const [worker, briefing, canvas] = await Promise.all(["worker", "briefing", "canvas"].map((name) =>
     readFile(new URL(`./prompts/${name}.txt`, import.meta.url), "utf8")));
 
 function render(template, values) {
@@ -18,6 +18,7 @@ export function buildPrompt({ profile, route, skill, input }) {
         memory: input.context || "",
         sources: input.sourceContext || "",
         request: input.prompt,
+        canvas,
     };
     return render(worker, values);
 }
