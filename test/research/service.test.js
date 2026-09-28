@@ -54,6 +54,20 @@ function fixture(run, send) {
     return { service, state, calls, sent, published, current, config, post, job, ready };
 }
 
+test("natural research request", async () => {
+    const f = fixture();
+    const handler = createMessageHandler({ state: f.state, research: f.service, config: f.config,
+        bot: "BOT", post: f.post, runtime: { wake: () => assert.fail("Unexpected ordinary task") } });
+    await handler.handle({ body: { team_id: context.team }, event: {
+        channel: context.channel, user: context.user, ts: context.messageTs,
+        text: "<@BOT> 아까 On-device 관련 아이데이션을 계속 진행 중인데, 딥리서치 활용해서 제대로 새롭게 진행하고싶어.",
+    } });
+    await f.service.idle();
+    assert.equal(f.job().status, "ready");
+    assert.deepEqual(f.calls.map((task) => task.researchStage), ["clarify"]);
+    assert.equal(f.state.snapshot().inbox["C1:100.001"].status, "processed");
+});
+
 test("research lifecycle", async () => {
     const started = { codex: deferred(), claude: deferred() };
     const release = deferred();
