@@ -8,6 +8,7 @@ import { createResearchControlTools } from "../research/tools.js";
 import { createAutoresearchTools } from "../autoresearch/tools.js";
 import { createRemoteTools } from "../remote/tools.js";
 import { argumentError } from "./validation.js";
+import { logEvent } from "../shared/events.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
@@ -178,7 +179,11 @@ export function createTools({ personal, weather, calendar, arxiv, library, state
             if (!Object.hasOwn(tools, name)) throw Error("Unknown tool");
             const tool = tools[name];
             const parsed = tool.schema.safeParse(args);
-            if (!parsed.success) throw argumentError(parsed.error, z.toJSONSchema(tool.schema, { io: "input" }));
+            if (!parsed.success) {
+                logEvent("tool_rejected", { component: "tools", taskId: context.id, status: "invalid_arguments",
+                    tool: name, field: parsed.error.issues[0]?.path[0] });
+                throw argumentError(parsed.error, z.toJSONSchema(tool.schema, { io: "input" }));
+            }
             signal?.throwIfAborted();
             return tool.run(parsed.data, context, signal);
         },
