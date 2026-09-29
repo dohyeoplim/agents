@@ -26,7 +26,9 @@ async function publish(path, data) {
 }
 
 function normalizeSource(source) {
-    if (!source || !["slack", "research"].includes(source.provider)) throw Error("Invalid artifact source");
+    if (!source || !["slack", "research", "autoresearch"].includes(source.provider)) {
+        throw Error("Invalid artifact source");
+    }
     const result = { provider: source.provider };
     for (const field of ["channel", "fileId", "version", "kind"]) {
         const value = source[field];

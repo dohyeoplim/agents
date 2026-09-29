@@ -49,7 +49,8 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         await writeFile(legacyFile, JSON.stringify(legacy));
         const first = await store({ legacyFile }).load();
         assert.deepEqual(first.snapshot(), { ...legacy, inbox: {}, artifacts: {},
-            canvasBindings: {}, canvasReads: {}, canvasChanges: {}, researchJobs: {}, researchSources: {} });
+            canvasBindings: {}, canvasReads: {}, canvasChanges: {}, researchJobs: {}, researchSources: {},
+            autoresearchJobs: {} });
         assert.equal((await query("SELECT prompt FROM test_schema.executions")).rows[0].prompt, "한국어 작업");
         await first.update((data) => { data.entries.memory.text = "수정된 선호"; });
         await first.close();
@@ -83,6 +84,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         await first.close();
         await query(`DROP TABLE test_schema.canvas_bindings, test_schema.canvas_reads, test_schema.canvas_changes`);
         await query(`DROP TABLE test_schema.research_jobs, test_schema.research_sources`);
+        await query("DROP TABLE test_schema.autoresearch_jobs");
         await query("UPDATE test_schema.storage_meta SET value = '1' WHERE key = 'schema_version'");
         const table = await query("SELECT 'test_schema.executions'::regclass::oid AS oid");
         const migrated = await store().load();
@@ -90,7 +92,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.equal((await query("SELECT 'test_schema.executions'::regclass::oid AS oid")).rows[0].oid,
             table.rows[0].oid);
         assert.equal((await query("SELECT value FROM test_schema.storage_meta WHERE key = 'schema_version'"))
-            .rows[0].value, 3);
+            .rows[0].value, 4);
         const ownership = { team: "T1", user: "U1", channel: "C1", canvasId: "F1" };
         const binding = { ...ownership, purpose: "coursework", title: "Study notes", updatedAt: 2000 };
         const read = { ...ownership, revision: "sha256", createdAt: 2100, title: "Study notes", text: "Notes",
@@ -126,6 +128,7 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         await first.update((data) => { data.canvasBindings.canvas = { title: "Existing", canvasId: "F1" }; });
         await first.close();
         await query("DROP TABLE test_schema.research_jobs, test_schema.research_sources");
+        await query("DROP TABLE test_schema.autoresearch_jobs");
         await query("UPDATE test_schema.storage_meta SET value = '2' WHERE key = 'schema_version'");
         const migrated = await store().load();
         assert.equal(migrated.snapshot().canvasBindings.canvas.title, "Existing");
@@ -144,7 +147,41 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         assert.deepEqual(reopened.snapshot().researchJobs.job, job);
         assert.deepEqual(reopened.snapshot().researchSources.source, source);
         assert.equal((await query("SELECT value FROM test_schema.storage_meta WHERE key = 'schema_version'"))
-            .rows[0].value, 3);
+            .rows[0].value, 4);
+    });
+
+    await t.test("autoresearch migration", async (t) => {
+        const { store, query } = await database(t);
+        const first = await store().load();
+        const research = { team: "T", user: "U", channel: "C", status: "completed",
+            checkpoint: { version: 2, reports: { synthesize: "report" } }, reports: [{ id: "report" }] };
+        await first.update((data) => { data.researchJobs.research = research; });
+        await first.close();
+        await query("DROP TABLE test_schema.autoresearch_jobs");
+        await query("UPDATE test_schema.storage_meta SET value = '3' WHERE key = 'schema_version'");
+        const table = await query("SELECT 'test_schema.research_jobs'::regclass::oid AS oid");
+        const migrated = await store().load();
+        assert.deepEqual(migrated.snapshot().researchJobs.research, research);
+        assert.deepEqual(migrated.snapshot().autoresearchJobs, {});
+        assert.equal((await query("SELECT 'test_schema.research_jobs'::regclass::oid AS oid")).rows[0].oid,
+            table.rows[0].oid);
+        assert.equal((await query("SELECT value FROM test_schema.storage_meta WHERE key = 'schema_version'"))
+            .rows[0].value, 4);
+        const job = { id: "experiment", team: "T", user: "U", channel: "C", thread: "1.000001",
+            key: "T:C:1.000001", status: "ready", title: "Quantization", createdAt: 1000, updatedAt: 2000,
+            revision: 2, plan: { objective: "Reduce memory", metric: "accuracy", gpuHours: 32 },
+            manifestId: "artifact", hash: "sha256" };
+        await migrated.update((data) => { data.autoresearchJobs[job.id] = job; });
+        await migrated.close();
+        const reopened = await store().load();
+        assert.deepEqual(reopened.snapshot().autoresearchJobs[job.id], job);
+        assert.deepEqual(reopened.snapshot().researchJobs.research, research);
+        const persisted = (await query("SELECT * FROM test_schema.autoresearch_jobs")).rows[0];
+        assert.equal(persisted.status, "ready");
+        assert.deepEqual(persisted.extra.plan, job.plan);
+        assert.equal(persisted.extra.manifestId, job.manifestId);
+        assert.equal(persisted.extra.hash, job.hash);
+        assert.equal(persisted.extra.revision, job.revision);
     });
 
     await t.test("transaction rollback", async (t) => {

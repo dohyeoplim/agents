@@ -40,6 +40,9 @@ export const records = {
     researchSources: { table: "research_sources", version: 3, fields: [...ownership,
         field("researchId", "research_id"), field("title", "title"), field("url", "url"),
         field("updatedAt", "updated_at_ms", number)] },
+    autoresearchJobs: { table: "autoresearch_jobs", version: 4, fields: [...ownership, field("thread", "thread_ts"),
+        field("key", "conversation_id"), field("status", "status"), field("title", "title"),
+        field("createdAt", "created_at_ms", number), field("updatedAt", "updated_at_ms", number)] },
 };
 
 const object = z.record(z.string(), z.unknown());

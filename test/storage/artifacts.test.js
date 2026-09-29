@@ -76,3 +76,14 @@ test("artifact integrity", async (t) => {
         JSON.stringify({ ...saved, path: "../../outside" }));
     await assert.rejects(store.get(saved.id), /integrity check/);
 });
+
+test("autoresearch manifest", async (t) => {
+    const { directory, store } = await fixture(t);
+    const content = JSON.stringify({ objective: "Reduce memory", execution: "disabled" });
+    const origin = { ...source, provider: "autoresearch", fileId: "experiment", kind: "manifest" };
+    const saved = await store.put(content, { mime: "application/json", source: origin });
+    const reopened = await createArtifactStore({ directory }).get(saved.id);
+    assert.deepEqual(reopened.source, origin);
+    assert.equal(reopened.data.toString(), content);
+    assert.equal(reopened.hash, saved.hash);
+});
