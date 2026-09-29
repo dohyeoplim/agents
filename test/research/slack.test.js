@@ -62,6 +62,19 @@ test("completion actions", () => {
     assert.equal(result.blocks[3].text.text.length, 2900);
 });
 
+test("limited actions", async () => {
+    for (const action of ["continue", "finish", "summarize", "cancel"]) {
+        const { job, click, calls } = fixture({ status: "limited", finishRequested: true });
+        assert.deepEqual(researchActions(job), ["continue", "finish", "summarize", "cancel"]);
+        const result = renderResearch(job);
+        assert.deepEqual(result.blocks.at(-1).elements.map((button) => button.text.text),
+            ["Continue", "Finish", "Summarize", "Cancel"]);
+        assert.ok(result.blocks.some((block) => block.text?.text.includes("자동 실행 한도")));
+        await click(action);
+        assert.equal(calls.find(([kind]) => kind === "control")[2], action);
+    }
+});
+
 test("scope actions", async () => {
     for (const status of ["paused", "interrupted", "failed"]) {
         for (const scope of [{ startedAt: 1 }, { reports: [{ stage: "explore" }] }]) {

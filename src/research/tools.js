@@ -26,7 +26,7 @@ export const proposalInput = z.object({
 });
 
 export const controlInput = z.object({ id: z.uuid(), revision,
-    action: z.enum(["start", "resume", "pause", "finish", "canvas", "cancel", "refresh"]) }).strict();
+    action: z.enum(["start", "resume", "continue", "pause", "finish", "canvas", "cancel", "refresh"]) }).strict();
 export const resultInput = z.object({ id: z.uuid(),
     offset: z.number().int().nonnegative().default(0) }).strict();
 

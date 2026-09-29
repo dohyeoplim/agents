@@ -37,6 +37,9 @@ export function renderResearch(job, now = Date.now()) {
         }));
     }
     blocks.push({ type: "context", elements: [plain(details.join("\n"))] });
+    if (job.status === "limited" && !job.error) {
+        blocks.push({ type: "section", text: plain(researchText("RESEARCH_LIMIT_REACHED")) });
+    }
     for (let offset = 0; offset < (job.brief || "").length; offset += 2900) {
         blocks.push({ type: "section", text: plain(job.brief.slice(offset, offset + 2900)) });
     }
@@ -124,7 +127,8 @@ export function createResearchSlack({ client, state, config, control, reply }) {
     }
 
     function register(app) {
-        const actionPattern = /^research_(start|edit|reply|status|pause|cancel|summarize|finish|resume|more|canvas)$/;
+        const actionPattern = new RegExp("^research_(" +
+            "start|edit|reply|status|pause|cancel|summarize|finish|resume|continue|more|canvas)$");
         app.action(actionPattern, async (event) => {
             const { ack, body, action } = event;
             await ack();

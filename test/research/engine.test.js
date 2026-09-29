@@ -8,7 +8,7 @@ import { createArtifactStore } from "../../src/storage/artifacts.js";
 import { createResearchLibrary } from "../../src/research/library.js";
 import { createResearchEngine, researchOutput } from "../../src/research/engine.js";
 
-async function fixture(t, execute, canvases) {
+async function fixture(t, execute, canvases, options = {}) {
     const directory = await mkdtemp(join(tmpdir(), "research-engine-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const job = { id: "job", team: "T", user: "U", channel: "C", thread: "1.000001", key: "thread",
@@ -18,7 +18,7 @@ async function fixture(t, execute, canvases) {
         artifacts: createArtifactStore({ directory: join(directory, "artifacts") }) });
     const calls = [];
     const posts = [];
-    const engine = createResearchEngine({ state, library, canvases, publish: async () => {},
+    const engine = createResearchEngine({ state, library, canvases, publish: async () => {}, ...options,
         post: async (job, text) => { posts.push({ job, text }); },
         execute: async (task, signal) => {
             calls.push(task);
@@ -136,7 +136,7 @@ test("alternating gaps", async (t) => {
     let pass = 0;
     const { engine, job, state } = await fixture(t, async (task, { library }) => {
         if (task.researchStage === "explore") {
-            if (++pass > 3) throw Error("Research cycle repeated");
+            if (++pass > 4) throw Error("Research cycle repeated");
             await library.save({ title: "Paper " + pass, url: "https://example.com/" + pass,
                 text: "Evidence " + pass, coverage: "excerpt" }, task);
         }
@@ -144,10 +144,9 @@ test("alternating gaps", async (t) => {
             gaps: [pass % 2 ? "  Measure   LATENCY " : "Measure accuracy"] }) : "Findings";
     });
     await engine.run(job, signal());
-    assert.equal(pass, 3);
-    assert.deepEqual(state.snapshot().researchJobs.job.checkpoint.seenGaps,
-        ["measure latency", "measure accuracy"]);
-    assert.equal(state.snapshot().researchJobs.job.status, "completed");
+    assert.equal(pass, 4);
+    assert.equal(state.snapshot().researchJobs.job.checkpoint.gapRegistry.length, 2);
+    assert.equal(state.snapshot().researchJobs.job.status, "limited");
 });
 
 test("durable convergence", async (t) => {
@@ -155,7 +154,7 @@ test("durable convergence", async (t) => {
     let fail = true;
     const f = await fixture(t, async (task, { library }) => {
         if (task.researchStage === "explore") {
-            if (++pass > 3) throw Error("Research cycle repeated after resume");
+            if (++pass > 4) throw Error("Research cycle repeated after resume");
             await library.save({ title: "Paper " + pass, url: "https://example.com/" + pass,
                 text: "Evidence " + pass, coverage: "excerpt" }, task);
         }
@@ -169,8 +168,9 @@ test("durable convergence", async (t) => {
     await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
     fail = false;
     await f.engine.run(await resume(f.state), signal());
-    assert.equal(pass, 3);
-    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+    assert.equal(pass, 4);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "limited");
+    assert.equal(f.state.snapshot().researchJobs.job.executionBudget.cycles, 3);
 });
 
 test("new gap progress", async (t) => {
@@ -186,10 +186,71 @@ test("new gap progress", async (t) => {
         }) : "Findings";
     });
     await engine.run(job, signal());
-    assert.equal(pass, 5);
+    assert.equal(pass, 4);
     const exploration = calls.filter((task) => task.researchStage === "explore").at(-1);
-    assert.deepEqual(JSON.parse(exploration.prompt).gaps, ["Gap 4"]);
-    assert.equal(state.snapshot().researchJobs.job.status, "completed");
+    assert.deepEqual(JSON.parse(exploration.prompt).gaps, ["Gap 1", "Gap 3"]);
+    assert.equal(state.snapshot().researchJobs.job.status, "limited");
+});
+
+test("paraphrase limit", async (t) => {
+    let pass = 0;
+    const f = await fixture(t, async (task, { library }) => {
+        if (task.researchStage === "explore") {
+            pass++;
+            await library.save({ title: `Paper ${pass}`, url: `https://example.com/${pass}`,
+                text: `Evidence ${pass}`, coverage: "excerpt" }, task);
+        }
+        return task.researchStage === "review" ? JSON.stringify({ verdict: "needs_research", feedback: [],
+            gaps: [`Latency evidence rephrased ${pass}`], gapIds: [null] }) : "Findings";
+    });
+    await f.engine.run(f.job, signal());
+    const limited = f.state.snapshot().researchJobs.job;
+    assert.equal(pass, 4);
+    assert.equal(limited.limitReason, "cycles");
+    assert.equal(limited.status, "limited");
+    assert.ok(limited.checkpoint.reports.synthesize);
+    assert.ok(limited.checkpoint.reports.review);
+    const count = f.calls.length;
+    await f.engine.run(await resume(f.state), signal());
+    assert.equal(f.calls.length, count);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "limited");
+    await f.state.update((data) => { delete data.researchJobs.job.executionBudget; });
+    await f.engine.run(await resume(f.state, { finishRequested: true }), signal());
+    assert.deepEqual(f.calls.slice(count).map((task) => task.researchStage), ["revise"]);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("active deadline", { timeout: 2000 }, async (t) => {
+    const guard = setTimeout(() => {}, 1500);
+    t.after(() => clearTimeout(guard));
+    const f = await fixture(t, async (task, { signal }) => {
+        await new Promise((resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            if (signal.aborted) reject(signal.reason);
+        });
+    }, undefined, { limits: { maxCycles: 3, maxDurationMs: 30 } });
+    await f.engine.run(f.job, signal());
+    const current = f.state.snapshot().researchJobs.job;
+    assert.equal(current.status, "limited");
+    assert.equal(current.limitReason, "time");
+    assert.ok(Object.values(f.state.snapshot().tasks).every((task) => task.status === "cancelled"));
+    assert.equal(current.executionBudget.activeSince, null);
+});
+
+test("legacy gap tracking", async (t) => {
+    const f = await fixture(t, async (task) => {
+        if (task.researchStage === "review") {
+            assert.deepEqual(JSON.parse(task.prompt).knownGaps, [{ id: "g1", text: "Measure latency" }]);
+            return ready;
+        }
+        return "Findings";
+    });
+    await f.state.update((data) => {
+        data.researchJobs.job.checkpoint = { version: 0, reports: {}, gaps: [], feedback: [],
+            seenGaps: ["Measure latency"], sourcesBefore: 0 };
+    });
+    await f.engine.run(f.job, signal());
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
 });
 
 test("Canvas export", async (t) => {
@@ -417,7 +478,7 @@ test("investigation resumption", async (t) => {
     f.state.update = async (change) => {
         const result = await update(change);
         const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
-        if (checkpoint?.previousGaps && checkpoint.reports.explore) saved.resolve();
+        if (checkpoint?.gapRegistry?.length && checkpoint.reports.explore) saved.resolve();
         return result;
     };
     await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
@@ -428,7 +489,7 @@ test("investigation resumption", async (t) => {
     assert.deepEqual(checkpoint.gaps, gaps);
     assert.deepEqual(checkpoint.feedback, feedback);
     assert.equal(checkpoint.sourcesBefore, 1);
-    assert.equal(checkpoint.previousGaps, JSON.stringify(gaps.map((gap) => gap.toLowerCase())));
+    assert.deepEqual(checkpoint.gapRegistry, [{ id: "g1", text: gaps[0] }]);
     const firstDraft = failed.reports.find((report) => report.stage === "synthesize");
     const firstReview = failed.reports.find((report) => report.stage === "review");
     const before = f.calls.length;
@@ -441,7 +502,7 @@ test("investigation resumption", async (t) => {
     const completed = f.state.snapshot().researchJobs.job;
     assert.equal(completed.checkpoint.reports.explore, checkpoint.reports.explore);
     assert.equal(completed.checkpoint.sourcesBefore, checkpoint.sourcesBefore);
-    assert.equal(completed.checkpoint.previousGaps, checkpoint.previousGaps);
+    assert.deepEqual(completed.checkpoint.gapRegistry, checkpoint.gapRegistry);
     assert.notEqual(completed.finalReportId, firstDraft.id);
     assert.notEqual(completed.reviewReportId, firstReview.id);
     assert.equal(f.posts.at(-1).text, "Synthesis 2");

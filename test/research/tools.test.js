@@ -32,7 +32,7 @@ test("control dispatch", async () => {
     await registry.call("research_propose", { title: "Followup", brief: "New scope", parentId: id }, context);
     await registry.call("research_propose", { id, revision: 0, title: "Edit", brief: "Scope",
         questions: ["Which device?"] }, context);
-    for (const action of ["start", "resume", "pause", "finish", "canvas", "cancel", "refresh"]) {
+    for (const action of ["start", "resume", "continue", "pause", "finish", "canvas", "cancel", "refresh"]) {
         await registry.call("research_control", { id, revision: 2, action }, context);
     }
     await registry.call("research_result", { id }, context);
@@ -41,7 +41,7 @@ test("control dispatch", async () => {
         args: [{ title: "Title", brief: "Scope", questions: [] }, context, undefined] });
     assert.equal(calls[2].args[0].parentId, id);
     assert.equal(calls[3].args[0].revision, 0);
-    assert.deepEqual(calls.slice(4, 11).map((call) => call.name), Array(7).fill("act"));
+    assert.deepEqual(calls.slice(4, 12).map((call) => call.name), Array(8).fill("act"));
     assert.deepEqual(calls.at(-1), { name: "readResult", args: [{ id, offset: 0 }, context] });
 });
 

@@ -1,25 +1,16 @@
-import { z } from "zod";
 import { failureCode, logFailure, providerError } from "../shared/diagnostics.js";
 import { appendTask } from "../tasks/runtime.js";
 import { researchText } from "./copy.js";
 import { researchAncestors } from "./library.js";
 import { createResearchExport } from "./export.js";
+import { researchLimits, startResearchBudget } from "./budget.js";
+import { researchOutput } from "./output.js";
+import { reconcileGaps } from "./gaps.js";
 
-const clarification = z.object({ ready: z.boolean(), title: z.string().trim().min(1).max(150),
-    brief: z.string().trim().min(1).max(6000), questions: z.array(z.string().trim().min(1).max(500)).max(3),
-}).strict().refine((value) => value.ready ? !value.questions.length : value.questions.length > 0);
-const review = z.object({ verdict: z.enum(["ready", "revise", "needs_research"]),
-    feedback: z.array(z.string().max(1500)).max(12), gaps: z.array(z.string().max(1500)).max(12),
-}).strict();
-const normalizeGap = (gap) => gap.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
+export { researchOutput } from "./output.js";
 
-export function researchOutput(text, kind) {
-    const content = text.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1");
-    try { return (kind === "clarify" ? clarification : review).parse(JSON.parse(content)); }
-    catch { throw Error(researchText("RESEARCH_OUTPUT_INVALID", { kind })); }
-}
-
-export function createResearchEngine({ state, execute, library, canvases, publish, post, now = Date.now }) {
+export function createResearchEngine({ state, execute, library, canvases, publish, post, now = Date.now,
+    limits = researchLimits() }) {
     const get = (id) => state.snapshot().researchJobs[id];
     const exportReport = createResearchExport({ state, library, canvases });
 
@@ -118,12 +109,27 @@ export function createResearchEngine({ state, execute, library, canvases, publis
     }
 
     async function run(job, signal) {
+        const budget = await startResearchBudget({ state, job, signal, now, limits });
+        try {
+            budget.check();
+            await investigateRun(job, budget.signal, budget);
+        } catch (error) {
+            if (!budget.exhausted(error)) throw error;
+            await update(job.id, job.runId, { status: "limited", stage: "", limitedAt: now(),
+                limitReason: budget.reason(error), error: researchText("RESEARCH_LIMIT_REACHED") });
+        } finally {
+            await budget.close();
+        }
+    }
+
+    async function investigateRun(job, signal, budget) {
         const { id, runId } = job;
         const sourceCount = () => new Set(Object.values(state.snapshot().researchSources || {})
             .filter((source) => source.researchId === id)
             .map((source) => source.url + ":" + (source.contentHash || source.artifactId))).size;
         async function saveCheckpoint(change) {
             return state.update((data) => {
+                budget.check();
                 signal.throwIfAborted();
                 const current = data.researchJobs[id];
                 if (current.runId !== runId || current.status !== "running") {
@@ -157,8 +163,9 @@ export function createResearchEngine({ state, execute, library, canvases, publis
             const checkpoint = await saveCheckpoint((current) => {
                 if (current.checkpoint?.version !== (current.scopeVersion || 0)) {
                     current.checkpoint = { version: current.scopeVersion || 0, reports: {},
-                        gaps: [], feedback: [], seenGaps: [], sourcesBefore: sourceCount() };
+                        gaps: [], feedback: [], gapRegistry: [], sourcesBefore: sourceCount() };
                 }
+                current.checkpoint.gapRegistry ??= reconcileGaps({ gaps: current.checkpoint.seenGaps || [] }).knownGaps;
             });
             if (!get(id).finishRequested) {
                 await investigate(job, signal, { gaps: checkpoint.gaps, feedback: checkpoint.feedback }, executeStage);
@@ -168,17 +175,16 @@ export function createResearchEngine({ state, execute, library, canvases, publis
             const version = get(id).scopeVersion || 0;
             const draft = await executeStage("synthesize", "codex", signal);
             await update(id, runId, { stage: researchText("STAGE_REVIEW"), draftReportId: draft.id });
-            const critique = await executeStage("review", "claude", signal, { draftReportId: draft.id });
+            const critique = await executeStage("review", "claude", signal, { draftReportId: draft.id,
+                knownGaps: checkpoint.gapRegistry, scopeVersion: version });
             const assessment = researchOutput(critique.text, "review");
-            const seenGaps = new Set([...(checkpoint.seenGaps || []), ...checkpoint.gaps.map(normalizeGap)]);
-            const newGaps = assessment.gaps.filter((gap) => normalizeGap(gap) && !seenGaps.has(normalizeGap(gap)));
-            const fingerprint = JSON.stringify(assessment.gaps.map(normalizeGap).sort());
-            if (assessment.verdict === "needs_research" && newGaps.length &&
+            const { knownGaps } = reconcileGaps(assessment, checkpoint.gapRegistry);
+            if (assessment.verdict === "needs_research" && assessment.gaps.length &&
                 !get(id).finishRequested && gainedEvidence) {
                 await saveCheckpoint((current) => {
+                    budget.advance(current);
                     current.checkpoint = { version, reports: {}, sourcesBefore: sourceCount(),
-                        previousGaps: fingerprint, gaps: newGaps, feedback: assessment.feedback,
-                        seenGaps: [...new Set([...seenGaps, ...assessment.gaps.map(normalizeGap)])] };
+                        gaps: assessment.gaps, feedback: assessment.feedback, gapRegistry: knownGaps };
                 });
                 continue;
             }

@@ -11,8 +11,11 @@
     ],
     "research_control": [
         "Control a research round using the id and revision returned by research_status. Start only after the",
-        "user confirms an existing plan in a later message. Resume continues an interrupted round. Pause",
-        "stops execution, cancel abandons an unfinished round while retaining saved materials, finish requests",
+        "user confirms an existing plan in a later message. Resume continues an interrupted round.",
+        "Continue grants another bounded execution period after a limited round, only when the user explicitly",
+        "requests it in a message after the limit was reached. Never continue automatically. Finish can finalize",
+        "a limited round using saved materials without further investigation.",
+        "Pause stops execution, cancel abandons an unfinished round while retaining saved materials, finish requests",
         "a final report, and canvas exports a completed result. Pausing a Canvas export preserves the completed round.",
         "Refresh restores the status message and its buttons without changing the research plan or execution."
     ],

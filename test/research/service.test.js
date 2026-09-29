@@ -575,3 +575,65 @@ test("queued cancellation", async () => {
     assert.deepEqual(f.state.snapshot().researchJobs, before);
     assert.equal(f.calls.length, 0);
 });
+
+test("limited confirmation", async () => {
+    for (const action of ["continue", "finish"]) {
+        const f = fixture();
+        const initial = await f.ready();
+        await f.state.update((data) => {
+            Object.assign(data.researchJobs[initial.id], { status: "limited", limitedAt: 110001,
+                finishRequested: action === "finish", executionBudget: { cycles: 3, elapsedMs: 3600000 } });
+        });
+        const before = f.job();
+        await assert.rejects(f.service.control(initial.id, "resume", undefined, context));
+        for (const messageTs of [undefined, "109.001", "110.001"]) {
+            await assert.rejects(f.service.act({ id: initial.id, revision: before.revision, action },
+                { ...taskContext, id: "task2", messageTs }));
+        }
+        assert.deepEqual(f.job(), before);
+        await f.service.act({ id: initial.id, revision: before.revision, action },
+            { ...taskContext, id: "task3", messageTs: "111.001" });
+        await f.service.idle();
+        assert.equal(f.job().status, "completed");
+        assert.equal(f.job().finishRequested, action === "finish");
+        assert.equal(f.job().limitedAt, undefined);
+        if (action === "finish") {
+            assert.equal(f.calls.some((task) => ["explore", "counter"].includes(task.researchStage)), false);
+        }
+    }
+});
+
+test("limited recovery", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    await f.state.update((data) => {
+        Object.assign(data.researchJobs[initial.id], { status: "limited", limitedAt: 110001,
+            executionBudget: { cycles: 3, elapsedMs: 3600000 } });
+    });
+    const before = f.job();
+    await f.service.recover();
+    assert.deepEqual(f.job(), before);
+    assert.deepEqual(f.published.at(-1), before);
+    const current = (await f.service.inspect(taskContext)).rounds[0];
+    assert.deepEqual(current.actions, ["continue", "finish", "summarize", "cancel"]);
+    assert.deepEqual(current.executionBudget, before.executionBudget);
+    assert.match(await f.service.control(initial.id, "status", undefined, context), /자동 실행 한도/);
+    assert.equal(f.calls.length, 0);
+});
+
+test("limited summary", async () => {
+    const f = fixture();
+    const initial = await f.ready();
+    await f.service.control(initial.id, "start", undefined, context);
+    await f.service.idle();
+    await f.state.update((data) => {
+        Object.assign(data.researchJobs[initial.id], { status: "limited", limitedAt: 110001 });
+    });
+    const before = f.job();
+    const calls = f.calls.length;
+    await f.service.control(initial.id, "summarize", undefined, { ...context, revision: before.revision });
+    assert.match(f.sent.at(-1).text, /synthesize result/);
+    assert.doesNotMatch(f.sent.at(-1).text, /진행 중/);
+    assert.deepEqual(f.job(), before);
+    assert.equal(f.calls.length, calls);
+});

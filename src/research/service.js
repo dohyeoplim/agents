@@ -26,6 +26,7 @@ export function createResearch({ state, execute, library, config, post, canvases
         return { id: job.id, parentId: job.parentId, round: job.round || 1, title: job.title, brief: job.brief,
             status: job.status, revision: job.revision, questions: job.questions || [],
             stage: job.stage || "", finishRequested: job.finishRequested === true,
+            limitedAt: job.limitedAt, limitReason: job.limitReason, executionBudget: job.executionBudget,
             actions: researchActions(job), progress: researchProgress(job, state.snapshot()),
             finalReportId: job.finalReportId, error: job.error || "" };
     }
@@ -220,9 +221,10 @@ export function createResearch({ state, execute, library, config, post, canvases
 
     function status(job) {
         const progress = researchProgress(job, state.snapshot());
-        return researchText("RESEARCH_STATUS", { title: job.title || researchText("UI_TITLE"),
+        const text = researchText("RESEARCH_STATUS", { title: job.title || researchText("UI_TITLE"),
             status: researchText(`UI_STATUS_${job.status}`) + (job.stage ? ` · ${job.stage}` : ""),
             sources: progress.sources, reports: progress.reports, round: job.round || 1 });
+        return job.status === "limited" ? text + "\n" + researchText("RESEARCH_LIMIT_REACHED") : text;
     }
 
     async function control(id, action, text, context, signal) {
@@ -273,7 +275,7 @@ export function createResearch({ state, execute, library, config, post, canvases
             return researchText(job.mode === "canvas" ? "RESEARCH_EXPORT_STOPPED" :
                 action === "cancel" ? "RESEARCH_CANCELLED" : "RESEARCH_PAUSED");
         }
-        if (action === "finish") {
+        if (action === "finish" && job.status !== "limited") {
             const finishing = await change(id, context, (current) => {
                 if (current.status !== "running" || current.mode !== "run") {
                     throw Error(researchText("RESEARCH_NOT_RUNNING"));
@@ -283,7 +285,7 @@ export function createResearch({ state, execute, library, config, post, canvases
             await publish(finishing);
             return researchText("RESEARCH_FINISHING");
         }
-        if (["start", "resume", "canvas"].includes(action)) {
+        if (["start", "resume", "continue", "finish", "canvas"].includes(action)) {
             const next = await change(id, context, (current) => {
                 if (action === "start" && context.id) {
                     const proposedAt = timestamp(current.proposalMessageTs || current.sourceMessageTs);
@@ -297,6 +299,17 @@ export function createResearch({ state, execute, library, config, post, canvases
                 if (action === "start" && current.status !== "ready") {
                     throw Error(researchText("RESEARCH_CONFIRM_SCOPE"));
                 }
+                if (["continue", "finish"].includes(action) &&
+                    (current.status !== "limited" || current.mode !== "run")) {
+                    throw Error(researchText("RESEARCH_ACTION_UNAVAILABLE"));
+                }
+                if (["continue", "finish"].includes(action) && context.id) {
+                    const requestedAt = timestamp(context.messageTs);
+                    if (requestedAt === null || !Number.isSafeInteger(current.limitedAt) ||
+                        requestedAt <= BigInt(current.limitedAt) * 1000n) {
+                        throw Error(researchText("RESEARCH_CONTINUE_LATER"));
+                    }
+                }
                 if (action === "resume" && !resumable.includes(current.status)) {
                     throw Error(researchText("RESEARCH_NOT_PAUSED"));
                 }
@@ -304,10 +317,15 @@ export function createResearch({ state, execute, library, config, post, canvases
                     throw Error(researchText("RESEARCH_NO_FINAL"));
                 }
                 const mode = action === "canvas" ? "canvas" : action === "resume" ? current.mode || "run" : "run";
+                if (["continue", "finish"].includes(action)) {
+                    delete current.executionBudget;
+                    delete current.limitedAt;
+                    delete current.limitReason;
+                }
                 Object.assign(current, { mode, runId: randomUUID(),
                     status: mode === "clarify" ? "clarifying" : "queued", error: "",
-                    canvasBusy: mode === "canvas", finishRequested: action === "resume" &&
-                        current.finishRequested === true, questions: [] });
+                    canvasBusy: mode === "canvas", finishRequested: action === "finish" ||
+                        (action === "resume" && current.finishRequested === true), questions: [] });
                 if (mode === "run") {
                     current.startedAt ??= Date.now();
                     current.confirmedPlans ??= [];
@@ -395,7 +413,7 @@ export function createResearch({ state, execute, library, config, post, canvases
             return changed;
         });
         for (const job of Object.values(state.snapshot().researchJobs || {})) {
-            if (job.status === "interrupted" || recovered.includes(job.id)) {
+            if (["interrupted", "limited"].includes(job.status) || recovered.includes(job.id)) {
                 await publish(job).catch(() => {});
             }
         }
