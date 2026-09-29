@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { buildResearchPrompt } from "../research/prompts.js";
 
-const [worker, briefing, canvas, history, notion, research] = await Promise.all(
-    ["worker", "briefing", "canvas", "history", "notion", "research-control"].map((name) =>
+const [worker, briefing, canvas, history, notion, research, autoresearch] = await Promise.all(
+    ["worker", "briefing", "canvas", "history", "notion", "research-control", "autoresearch"].map((name) =>
         readFile(new URL(`./prompts/${name}.txt`, import.meta.url), "utf8")));
 
 function render(template, values) {
@@ -26,6 +26,7 @@ export function buildPrompt({ profile, route, skill, input }) {
         canvas,
         notion,
         research,
+        autoresearch,
     };
     return render(worker, values);
 }

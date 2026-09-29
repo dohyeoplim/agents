@@ -25,3 +25,11 @@ test("research control prompt", () => {
     assert.ok(prompt.includes("Continue research {{research}}"));
     assert.ok(prompt.includes("Prior decisions"));
 });
+
+test("autoresearch preparation", () => {
+    const prompt = buildPrompt({ profile: { instructions: "Profile" }, route: {}, input: { prompt: "Study" } });
+    assert.match(prompt, /Use autoresearch_status/);
+    assert.match(prompt, /runner is not configured/);
+    assert.match(prompt, /Do not connect to GPU servers/);
+    assert.match(prompt, /Prepare only freezes/);
+});

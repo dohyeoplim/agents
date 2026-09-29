@@ -95,7 +95,8 @@ test("control grants", async (t) => {
         job: { ...owner, runId: "run", status: "running" },
     } };
     const names = ["research_status", "research_propose", "research_control", "research_result",
-        "research_source_save", "research_report_read"];
+        "research_source_save", "research_report_read", "autoresearch_status", "autoresearch_propose",
+        "autoresearch_control", "autoresearch_manifest"];
     const bridge = createToolServer({ state: { snapshot: () => data }, personal: async () => null,
         config: async () => ({ team: "T1", users: ["U1"], channels: { C1: {} } }),
         tools: { definitions: names.map((name) => ({ name, inputSchema: { type: "object" } })),
@@ -108,7 +109,8 @@ test("control grants", async (t) => {
     });
     const url = new URL(`http://127.0.0.1:${bridge.server.address().port}/mcp`);
     const research = { researchId: "job", researchRunId: "run", researchStage: "clarify" };
-    for (const [extra, allowed] of [[{}, names.slice(0, 4)], [{ scheduleId: "schedule" }, []],
+    for (const [extra, allowed] of [[{}, [...names.slice(0, 4), ...names.slice(6)]], [{ scheduleId: "schedule" }, []],
+        [{ briefingDate: "2026-09-29" }, []],
         [research, ["research_report_read"]]]) {
         const grant = bridge.grant({ ...owner, ...extra });
         const client = new Client({ name: "test", version: "1" });
@@ -119,6 +121,8 @@ test("control grants", async (t) => {
             assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name), allowed);
             const result = await client.callTool({ name: "research_control", arguments: {} });
             assert.equal(result.isError === true, !allowed.includes("research_control"));
+            const auto = await client.callTool({ name: "autoresearch_control", arguments: {} });
+            assert.equal(auto.isError === true, !allowed.includes("autoresearch_control"));
         } finally {
             await client.close();
             grant.revoke();

@@ -7,6 +7,7 @@ import { addSchedule, changeSchedule, ownedSchedules } from "../schedules/schedu
 import { isFileId } from "../resources/identifiers.js";
 import { sourceList } from "../resources/context.js";
 import { researchText } from "../research/copy.js";
+import { autoresearchText } from "../autoresearch/copy.js";
 
 export const helpText = [
     "!profile - show agent profiles and the current profile",
@@ -24,6 +25,7 @@ export const helpText = [
     "!delegate <profile> <request> - run a separate specialist session",
     "!tasks - list recent tasks in this channel",
     "!research <request> - prepare a deep research plan",
+    "!autoresearch <request> - prepare a GPU experiment plan without execution",
     "!stop [task-id] - stop this thread's tasks and research, or cancel one task",
     "!retry <task-id> - explicitly rerun a failed or interrupted task",
     "!redeliver <task-id> - resend a saved answer without rerunning the model",
@@ -108,6 +110,10 @@ export function requestedTask(prompt, profiles, route, skills) {
     if (command?.name === "delegate") [requested, prompt] = splitFirst(command.args);
     else if (command?.name === "research") {
         prompt = researchText("RESEARCH_COMMAND", { request: command.args });
+    }
+    else if (command?.name === "autoresearch") {
+        if (!command.args.trim()) throw Error(autoresearchText("COMMAND_EMPTY"));
+        prompt = autoresearchText("COMMAND", { request: command.args });
     }
     else if (command?.name === "skill") [skill, prompt] = splitFirst(command.args);
     else if (command?.name === "read") {

@@ -11,6 +11,8 @@ const clarificationTools = ["slack_messages_read", "slack_messages_search", "sla
     "research_report_read"];
 
 export function researchToolAllowed(task, name) {
+    if (name.startsWith("autoresearch_")) return !task.researchId && !task.scheduleId && !task.briefingDate &&
+        ["autoresearch_status", "autoresearch_propose", "autoresearch_control", "autoresearch_manifest"].includes(name);
     if (!task.researchId) return !name.startsWith("research_") ||
         (!task.scheduleId && !task.briefingDate && controls.includes(name));
     if (task.researchStage === "clarify") return clarificationTools.includes(name);

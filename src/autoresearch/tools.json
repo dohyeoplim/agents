@@ -1,0 +1,22 @@
+{
+    "autoresearch_status": [
+        "Read experiment preparation plans in this Slack thread. This is separate from web deep research.",
+        "Read before proposing or controlling an experiment plan. Follow nextOffset for older plans.",
+        "The runner is not configured. No experiment is queued or running."
+    ],
+    "autoresearch_propose": [
+        "Prepare or replace a draft experiment plan. Include only user-supplied or verified repository revisions,",
+        "datasets, evaluation criteria and budgets. Leave unresolved fields absent and ask the user for them.",
+        "Existing plans require both id and revision. This never accesses a remote server or runs commands."
+    ],
+    "autoresearch_control": [
+        "Approve, cancel or refresh an experiment plan using its current id and revision.",
+        "Approve only after the user confirms an existing complete plan in a later message. Approval saves an",
+        "immutable execution manifest and does not start, queue or schedule an experiment. Refresh restores the",
+        "status message. The experiment runner is not configured."
+    ],
+    "autoresearch_manifest": [
+        "Read the saved execution manifest for a prepared experiment plan in this thread. Follow nextOffset",
+        "for additional chunks. A manifest describes intended work, not executed or verified experiment results."
+    ]
+}

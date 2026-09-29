@@ -17,6 +17,9 @@ Do not output internal citation markers or claim to search without using the sea
 Deep research workflow
 {{research}}
 
+Auto research workflow
+{{autoresearch}}
+
 Memory and schedules
 Persistent memory and schedules are managed through the Slack !commands.
 Do not claim to save memory or create schedules through conversation alone.

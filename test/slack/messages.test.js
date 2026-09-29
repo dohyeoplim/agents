@@ -53,6 +53,16 @@ const revokedRoutes = {
     agent: (current) => { current.channels.C1.agent = "replacement"; },
 };
 
+test("autoresearch intake", async () => {
+    const { send, jobs, replies } = fixture();
+    await send("<@BOT> !autoresearch Optimize memory");
+    assert.equal(jobs.length, 1);
+    assert.match(jobs[0].prompt, /오토리서치/);
+    assert.match(jobs[0].prompt, /Optimize memory/);
+    assert.equal(jobs[0].researchId, undefined);
+    assert.equal(replies.length, 0);
+});
+
 test("pending request authorization", async (test) => {
     for (const [name, revoke] of Object.entries(revokedRoutes)) {
         await test.test(name, async () => {

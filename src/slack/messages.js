@@ -145,7 +145,7 @@ export function createMessageHandler({
             availableSkills = await skills();
             if (!Object.hasOwn(availableProfiles, context.profile)) throw Error("Channel profile is unavailable");
             command = parseCommand(item.prompt);
-            if (!command || ["delegate", "skill", "read", "research"].includes(command.name)) {
+            if (!command || ["delegate", "skill", "read", "research", "autoresearch"].includes(command.name)) {
                 task = requestedTask(item.prompt, availableProfiles, route, availableSkills);
             }
         } catch (error) {

@@ -38,3 +38,10 @@ test("research command", () => {
     assert.match(job.prompt, /Compare on-device methods/);
     assert.equal(job.profile, "assistant");
 });
+
+test("autoresearch command", () => {
+    const job = requestedTask("!autoresearch Optimize memory", profiles, { name: "inbox" }, skills);
+    assert.match(job.prompt, /Optimize memory/);
+    assert.match(job.prompt, /오토리서치/);
+    assert.throws(() => requestedTask("!autoresearch", profiles, { name: "inbox" }, skills));
+});

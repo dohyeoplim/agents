@@ -28,6 +28,8 @@ import { createResearchLibrary } from "./research/library.js";
 import { createResearch } from "./research/service.js";
 import { createResearchSlack } from "./research/slack.js";
 import { logFailure } from "./shared/diagnostics.js";
+import { createAutoresearch } from "./autoresearch/service.js";
+import { createAutoresearchSlack } from "./autoresearch/slack.js";
 
 const config = await loadConfig();
 const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
@@ -72,8 +74,9 @@ const canvasOptions = { token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl:
 const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: createCanvases(canvasOptions).create });
 const history = createSlackHistory({ token: process.env.SLACK_BOT_TOKEN, workspaceUrl: identity.url });
 const historyContext = createHistoryContext({ state, history });
+const autoresearch = createAutoresearch({ state, artifacts, config: loadConfig });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
-    arxiv, library, state, canvases, history, research: researchLibrary,
+    arxiv, library, state, canvases, history, research: researchLibrary, autoresearch,
     researchControl: {
         inspect: (...args) => research.inspect(...args), propose: (...args) => research.propose(...args),
         act: (...args) => research.act(...args), readResult: (...args) => research.readResult(...args),
@@ -93,6 +96,10 @@ const research = createResearch({ state, library: researchLibrary, config: loadC
 const researchSlack = createResearchSlack({ client: app.client, state, config: loadConfig, control: research.control });
 research.attach(researchSlack);
 researchSlack.register(app);
+const autoresearchSlack = createAutoresearchSlack({ client: app.client, state, config: loadConfig,
+    control: autoresearch.control });
+autoresearch.attach(autoresearchSlack);
+autoresearchSlack.register(app);
 const messages = createMessageHandler({ state, runtime, bot: identity.user_id, post, titles, resources, research });
 const channels = createAutomaticChannels({ client: app.client, team: config.team, bot: identity.user_id,
     file: process.env.AUTO_CHANNELS_FILE || "/channels/routes.json" });
@@ -111,6 +118,7 @@ await new Promise((resolve, reject) => {
 });
 await app.start();
 await research.recover();
+await autoresearch.recover();
 await channels.sync().catch(() => {});
 const channelTimer = setInterval(() => { channels.sync().catch(() => {}); }, 5 * 60 * 1000);
 channelTimer.unref();
@@ -127,6 +135,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         stopBriefings();
         clearInterval(channelTimer);
         await research.stop();
+        autoresearch.stop();
         await app.stop();
         await channels.stop();
         await messages.idle();
