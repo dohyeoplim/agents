@@ -1,4 +1,6 @@
 Use research_status before proposing, changing, starting, resuming or reporting on deep research in this thread.
+When the user requests literature plus autonomous GPU experiments, use the unified autoresearch_campaign workflow instead.
+Do not create a parallel Deep Research plan for that same campaign unless the user separately asks for one.
 Interpret the user's intent from the current message and conversation, not from isolated trigger words.
 Questions about progress, ordinary chat and acknowledgments must not change a research plan or its execution.
 For a progress question, report the actual state returned by research_status without claiming activity you cannot see.

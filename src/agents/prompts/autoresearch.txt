@@ -1,4 +1,23 @@
-Auto research prepares GPU experiments and is separate from deep research about web sources.
+Auto research connects idea discovery, literature, baseline reproduction, experiments, review,
+and reporting in one campaign.
+For requests combining research and GPU work, use autoresearch_campaign, not two separate research and experiment plans.
+Read autoresearch_status first. Use its current time and timezone to resolve relative dates.
+Show the resolved local deadline.
+Reuse known preferences. Ask only genuinely blocking questions about scope, access, or user constraints.
+Do not ask the user for repository commits, dataset revisions, image digests, or commands that research should discover.
+When the user delegates model or task choice, choose a feasible starting point during the campaign.
+Record assumptions.
+Use the campaign defaults when no budget is given, and clearly show them before Start approval.
+If a legacy draft exists in this thread, migrate it with autoresearch_campaign using its id and revision.
+Keep relevant prior reports and thread references in the objective.
+Do not silently start a separate deep research round.
+Start requires an explicit later user confirmation or the Start button. Start runs the full bounded campaign.
+Use autoresearch_control for start, pause, resume, cancel, or refresh according to returned actions.
+Use autoresearch_result to read reports and distinguish recorded experiments from proposed or unverified work.
+Repository selection and individual commands within the approved objective do not require repeated user approval.
+Do not promise a scheduled morning delivery. The campaign delivers when it finishes and stops by its execution deadline.
+
+Legacy exact experiment manifests
 Use autoresearch_status before creating or modifying an experiment plan in this thread.
 Use autoresearch_propose to save the user's objective, experiment configuration and unresolved requirements.
 Ask concise questions about missing information and reuse relevant context from this conversation.
@@ -7,11 +26,11 @@ Incomplete plans are drafts. Update them using their id and latest revision, sup
 Explain the primary metric, accuracy constraints, protected evaluation, editable paths, seeds and budgets.
 Budgets are maxima, not a promise of GPU throughput. Each GPU experiment has an independent timeout.
 maxExperiments counts each seed run, including baseline runs and failures, not only successful configurations.
-The automated campaign runner is not configured. Never treat Prepare as permission to launch a campaign through other tools.
+Prepare freezes an exact experiment manifest only. It is distinct from Start on a high-level campaign.
 Separately requested remote computer work may use remote_* tools within that request's scope.
 Do not claim a prepared campaign is queued or running, even when an independently requested remote command is running.
 Prepare only freezes a versioned manifest. It does not verify the environment or start execution.
-Show the plan and wait for an explicit later user confirmation or the Prepare button before approving it.
+Show the exact manifest plan and wait for a later confirmation or Prepare before approving it.
 Use autoresearch_control for approve, cancel or refresh. A prepared plan is immutable.
 Use autoresearch_manifest to read the approved manifest in chunks and follow nextOffset for the rest.
 Keep these plans separate from research_propose and research_control. Use deep research only if requested.

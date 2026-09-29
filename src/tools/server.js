@@ -30,7 +30,14 @@ export function createToolServer({ tools, state, config, personal, healthy }) {
             if (task.team !== current.team || !current.users.includes(task.user) || !route || route.enabled === false ||
                 task.user !== (settings?.owner || current.users[0]) ||
                 state.snapshot().tasks[task.id]?.status !== "running") return reject(403);
-            if (task.researchId) {
+            if (task.autoresearchId) {
+                const job = state.snapshot().autoresearchJobs?.[task.autoresearchId];
+                if (!job || job.mode !== "campaign" || job.runId !== task.researchRunId ||
+                    job.status !== "running" || task.researchId !== job.id ||
+                    ["team", "user", "channel", "thread", "key", "profile"].some((key) => job[key] !== task[key])) {
+                    return reject(403);
+                }
+            } else if (task.researchId) {
                 const job = state.snapshot().researchJobs?.[task.researchId];
                 if (!job || job.runId !== task.researchRunId || !["running", "clarifying"].includes(job.status) ||
                     ["team", "user", "channel"].some((key) => job[key] !== task[key])) return reject(403);
@@ -51,7 +58,7 @@ export function createToolServer({ tools, state, config, personal, healthy }) {
                 if (!researchToolAllowed(task, request.params.name)) {
                     return { isError: true, content: [{ type: "text", text: "Tool unavailable in this stage" }] };
                 }
-                if ((!task.researchId && ++access.calls > 80) || access.pending >= 3) {
+                if (((!task.researchId || task.autoresearchId) && ++access.calls > 80) || access.pending >= 3) {
                     return { isError: true, content: [{ type: "text", text: "Tool call limit reached" }] };
                 }
                 access.pending++;

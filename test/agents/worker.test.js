@@ -128,6 +128,24 @@ test("research cancellation", async (t) => {
     await assert.rejects(workerResponse(response), /취소/);
 });
 
+test("campaign requests", async (t) => {
+    const request = await fixture(t, async (options) => {
+        assert.equal(options.timeout, null);
+        assert.match(options.prompt, /approved autonomous research campaign/);
+        assert.match(options.prompt, /baseline first/);
+        return { session: randomUUID(), answer: '{"kind":"report","text":"Results"}' };
+    });
+    const id = randomUUID();
+    const input = { channel: "C1", prompt: "Study", researchId: id, autoresearchId: id,
+        researchRunId: randomUUID(), researchStage: "campaign" };
+    const result = await workerResponse(await request("/run", input));
+    assert.equal(JSON.parse(result.answer).kind, "report");
+    for (const change of [{ autoresearchId: undefined }, { autoresearchId: randomUUID() },
+        { researchStage: "explore" }, { researchId: undefined }]) {
+        assert.equal((await request("/run", { ...input, ...change })).status, 400);
+    }
+});
+
 test("worker authorization", async (t) => {
     let called = false;
     const request = await fixture(t, async () => { called = true; });

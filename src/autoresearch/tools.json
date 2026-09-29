@@ -1,19 +1,35 @@
 {
+    "autoresearch_campaign": [
+        "Create or update one autonomous research campaign combining investigation and remote experiments.",
+        "Use the conversation to establish the objective and only unresolved high-level questions.",
+        "Do not ask the user for repository commits, datasets, commands or image digests. The campaign discovers them.",
+        "Do not create a separate deep-research proposal for the same campaign. Inspect existing plans first and",
+        "supply id and revision to update or migrate a legacy draft. Clear questions when answers are known.",
+        "Timezone defaults to the user's settings. Express an explicit deadline as an ISO timestamp with offset.",
+        "Creating the campaign does not start it. Start requires a subsequent user confirmation or Start button."
+    ],
+    "autoresearch_result": [
+        "Read the campaign's saved report in bounded pages. Follow nextOffset for the full result.",
+        "Distinguish measured experiment results from unverified findings and proposed experiments."
+    ],
     "autoresearch_status": [
-        "Read experiment preparation plans in this Slack thread. This is separate from web deep research.",
+        "Read autonomous campaigns and exact experiment manifest plans in this Slack thread.",
         "Read before proposing or controlling an experiment plan. Follow nextOffset for older plans.",
-        "The runner is not configured. No experiment is queued or running."
+        "Campaign state and remote connection status are separate. Configured does not mean successfully connected."
     ],
     "autoresearch_propose": [
-        "Prepare or replace a draft experiment plan. Include only user-supplied or verified repository revisions,",
-        "datasets, evaluation criteria and budgets. Leave unresolved fields absent and ask the user for them.",
+        "Prepare a legacy exact experiment manifest. Prefer autoresearch_campaign for autonomous investigation.",
+        "Include only verified repository revisions, datasets, evaluation criteria and budgets.",
+        "Leave unresolved fields absent. Use a campaign when these details should be discovered autonomously.",
         "Existing plans require both id and revision. This never accesses a remote server or runs commands."
     ],
     "autoresearch_control": [
-        "Approve, cancel or refresh an experiment plan using its current id and revision.",
+        "Start, pause, resume, cancel or refresh an autonomous campaign using its current id and revision.",
+        "Start only after the user confirms the prepared campaign in a later message. Resume retains its deadline.",
+        "For legacy manifest plans, approve saves the manifest only.",
         "Approve only after the user confirms an existing complete plan in a later message. Approval saves an",
         "immutable execution manifest and does not start, queue or schedule an experiment. Refresh restores the",
-        "status message. The experiment runner is not configured."
+        "status message. The legacy experiment runner is not configured."
     ],
     "autoresearch_manifest": [
         "Read the saved execution manifest for a prepared experiment plan in this thread. Follow nextOffset",

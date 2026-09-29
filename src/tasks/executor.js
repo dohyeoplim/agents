@@ -57,6 +57,7 @@ export function createTaskExecutor({
                         stream: research || Boolean(streams && !task.scheduleId && !task.briefingDate),
                         ...(research ? { researchId: task.researchId, researchStage: task.researchStage,
                             researchRunId: task.researchRunId,
+                            ...(task.autoresearchId ? { autoresearchId: task.autoresearchId } : {}),
                             provider: task.provider || "codex" } : {}),
                         toolToken: grant?.token,
                         notionAccess: notionOwner && Boolean(grant?.token),
@@ -70,7 +71,8 @@ export function createTaskExecutor({
                         await state.update((draft) => {
                             signal.throwIfAborted();
                             const saved = draft.tasks?.[task.id];
-                            const job = draft.researchJobs?.[task.researchId];
+                            const job = task.autoresearchId ? draft.autoresearchJobs?.[task.autoresearchId] :
+                                draft.researchJobs?.[task.researchId];
                             if (saved?.status !== "running" || saved.researchId !== task.researchId ||
                                 saved.researchRunId !== task.researchRunId || job?.runId !== task.researchRunId ||
                                 !["running", "clarifying"].includes(job?.status) ||

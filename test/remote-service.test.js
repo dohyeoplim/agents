@@ -59,6 +59,32 @@ test("remote missing config", async () => {
     await assert.rejects(service.run("status", {}, { ...context, user: "U2" }), /access denied/);
 });
 
+test("connection observations", async () => {
+    const { service } = setup();
+    assert.deepEqual(service.describe(), { configured: true, connected: null });
+    await service.run("status", {}, context);
+    assert.equal(service.describe().connected, true);
+    assert.equal(typeof service.describe().checkedAt, "number");
+    const failed = setup({ transport: { request: async () => { throw Error("Unavailable"); } } });
+    await assert.rejects(failed.service.run("status", {}, context));
+    assert.equal(failed.service.describe().connected, false);
+    assert.deepEqual(setup({ transport: null }).service.describe(), { configured: false, connected: null });
+});
+
+test("campaign read access", async () => {
+    const { service, calls } = setup();
+    const campaign = { ...context, researchId: "R1", autoresearchId: "R1", researchStage: "campaign" };
+    for (const operation of ["status", "read", "job", "jobs"]) await service.run(operation, {}, campaign);
+    for (const operation of ["exec", "write", "cancel"]) {
+        await assert.rejects(service.run(operation, {}, campaign), /access denied/);
+    }
+    assert.equal(calls.length, 4);
+    assert.equal(researchToolAllowed(campaign, "remote_read"), true);
+    assert.equal(researchToolAllowed(campaign, "remote_exec"), false);
+    assert.equal(researchToolAllowed(campaign, "autoresearch_control"), false);
+    assert.equal(researchToolAllowed({ ...campaign, researchStage: "explore" }, "remote_read"), false);
+});
+
 test("remote owner namespace", async () => {
     const { service, calls } = setup();
     const signal = new AbortController().signal;

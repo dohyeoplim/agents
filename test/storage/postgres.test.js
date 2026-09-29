@@ -170,7 +170,10 @@ test("PostgreSQL storage", { skip: !connectionString }, async (t) => {
         const job = { id: "experiment", team: "T", user: "U", channel: "C", thread: "1.000001",
             key: "T:C:1.000001", status: "ready", title: "Quantization", createdAt: 1000, updatedAt: 2000,
             revision: 2, plan: { objective: "Reduce memory", metric: "accuracy", gpuHours: 32 },
-            manifestId: "artifact", hash: "sha256" };
+            manifestId: "artifact", hash: "sha256", mode: "campaign", executionDeadline: 999999,
+            campaign: { objective: "Discover ideas", maxSteps: 24 },
+            campaignState: { steps: 3, commands: 1, gpuSeconds: 120, history: [],
+                pending: { args: { id: randomUUID(), command: "nvidia-smi", timeoutSeconds: 30 }, submitted: true } } };
         await migrated.update((data) => { data.autoresearchJobs[job.id] = job; });
         await migrated.close();
         const reopened = await store().load();

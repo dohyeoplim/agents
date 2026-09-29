@@ -14,10 +14,10 @@ test("plan references", () => {
 });
 
 test("execution rejection", () => {
-    for (const action of ["start", "run", "continue", "resume"]) {
+    for (const action of ["run", "continue"]) {
         assert.equal(controlInput.safeParse({ id, revision: 1, action }).success, false);
     }
-    for (const action of ["approve", "cancel", "refresh"]) {
+    for (const action of ["approve", "cancel", "refresh", "start", "pause", "resume"]) {
         assert.equal(controlInput.parse({ id, revision: 1, action }).action, action);
     }
 });

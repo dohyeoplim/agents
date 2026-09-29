@@ -29,8 +29,22 @@ test("research control prompt", () => {
 test("autoresearch preparation", () => {
     const prompt = buildPrompt({ profile: { instructions: "Profile" }, route: {}, input: { prompt: "Study" } });
     assert.match(prompt, /Use autoresearch_status/);
-    assert.match(prompt, /runner is not configured/);
-    assert.match(prompt, /Never treat Prepare as permission to launch a campaign/);
+    assert.match(prompt, /use autoresearch_campaign, not two separate/);
+    assert.match(prompt, /Do not ask the user for repository commits/);
     assert.match(prompt, /Separately requested remote computer work may use remote_\* tools/);
     assert.match(prompt, /Prepare only freezes/);
+});
+
+test("campaign prompt", () => {
+    const base = { profile: { instructions: "Policy" }, route: {}, input: { autoresearchId: "campaign",
+        researchId: "campaign", researchStage: "campaign", prompt: '{"objective":"Find ideas"}' } };
+    const prompt = buildPrompt(base);
+    assert.match(prompt, /baseline first/);
+    assert.match(prompt, /finalOnly/);
+    assert.match(prompt, /Find ideas/);
+    assert.doesNotMatch(prompt, /runner is not configured/);
+    const review = buildPrompt({ ...base, input: { ...base.input, researchStage: "campaign-review" } });
+    assert.match(review, /Independently critique/);
+    assert.doesNotMatch(review, /"kind":"command"/);
+    assert.throws(() => buildPrompt({ ...base, input: { ...base.input, autoresearchId: "other" } }));
 });

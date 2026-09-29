@@ -129,3 +129,39 @@ test("control grants", async (t) => {
         }
     }
 });
+
+test("campaign grants", async (t) => {
+    const task = { id: "task", team: "T1", user: "U1", channel: "C1", thread: "1.0", key: "key",
+        profile: "assistant", researchId: "job", autoresearchId: "job", researchRunId: "run",
+        researchStage: "campaign" };
+    const data = { tasks: { task: { status: "running" } }, autoresearchJobs: {
+        job: { ...task, id: "job", mode: "campaign", runId: "run", status: "running" },
+    } };
+    let calls = 0;
+    const bridge = createToolServer({ state: { snapshot: () => data }, personal: async () => null,
+        config: async () => ({ team: "T1", users: ["U1"], channels: { C1: {} } }),
+        tools: { definitions: ["remote_exec", "remote_read", "autoresearch_campaign", "papers_search"].map((name) =>
+            ({ name, inputSchema: { type: "object" } })), call: async () => ({ calls: ++calls }) },
+    });
+    await new Promise((resolve) => bridge.server.listen(0, "127.0.0.1", resolve));
+    t.after(async () => {
+        bridge.server.closeAllConnections();
+        await new Promise((resolve) => bridge.server.close(resolve));
+    });
+    const grant = bridge.grant(task);
+    const client = new Client({ name: "test", version: "1" });
+    t.after(() => client.close());
+    await client.connect(new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${bridge.server.address().port}/mcp`),
+        { requestInit: { headers: { Authorization: "Bearer " + grant.token } } }));
+    assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name), ["remote_read", "papers_search"]);
+    assert.equal((await client.callTool({ name: "remote_exec", arguments: {} })).isError, true);
+    assert.equal(calls, 0);
+    await client.callTool({ name: "remote_read", arguments: {} });
+    assert.equal(calls, 1);
+    data.autoresearchJobs.job.runId = "changed";
+    await assert.rejects(client.listTools());
+    data.autoresearchJobs.job.runId = "run";
+    data.autoresearchJobs.job.status = "paused";
+    await assert.rejects(client.listTools());
+});

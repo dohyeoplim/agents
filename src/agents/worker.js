@@ -9,8 +9,9 @@ import { loadProfiles, resolveProfile } from "./profiles.js";
 import { loadSkills, resolveSkill } from "./skills.js";
 import { buildPrompt } from "./prompt.js";
 import { runClaude } from "./claude.js";
-import { researchStages } from "../research/policy.js";
+import { researchStages, campaignStages } from "../research/policy.js";
 import { failureCode, failureMessage, logFailure } from "../shared/diagnostics.js";
+import { logEvent } from "../shared/events.js";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,10 +58,17 @@ export function createWorker({
             }
             const route = (await config()).channels[input.channel];
             const research = input.researchId !== undefined;
+            const campaign = input.autoresearchId !== undefined;
+            if ((campaign && (!research || input.autoresearchId !== input.researchId ||
+                !campaignStages.includes(input.researchStage))) ||
+                (!campaign && campaignStages.includes(input.researchStage))) {
+                return reply(400, { error: "Invalid campaign request" });
+            }
             if ((research && (typeof input.researchId !== "string" || !uuid.test(input.researchId) ||
                 (input.researchRunId !== undefined &&
                     (typeof input.researchRunId !== "string" || !uuid.test(input.researchRunId))) ||
-                !researchStages.includes(input.researchStage) || input.session !== undefined ||
+                !(campaign ? campaignStages : researchStages).includes(input.researchStage) ||
+                input.session !== undefined ||
                 ![undefined, "codex", "claude"].includes(input.provider))) ||
                 (!research && (input.researchStage !== undefined || input.provider !== undefined ||
                     input.researchRunId !== undefined))) {
@@ -91,6 +99,8 @@ export function createWorker({
             if (research) researchJobs++;
             const controller = new AbortController();
             jobs.set(id, controller);
+            const startedAt = Date.now();
+            logEvent("task_started", context);
             res.on("close", () => {
                 if (!res.writableEnded) controller.abort();
             });
@@ -157,6 +167,7 @@ export function createWorker({
                     sessions.set(session, queue);
                 }
                 const result = await (queue ? queue.run(perform) : perform());
+                logEvent("task_completed", { ...context, durationMs: Date.now() - startedAt });
                 progress();
                 reply(200, result);
             } catch (error) {

@@ -113,6 +113,20 @@ test("research telemetry", async () => {
     assert.equal(empty.data.tasks[empty.input.id].lastActivityAt, undefined);
 });
 
+test("campaign telemetry", async () => {
+    const f = telemetry([{ type: "progress", providerEvents: 1, lastActivityAt: 1000 }]);
+    f.input.autoresearchId = "research";
+    f.input.researchStage = "campaign";
+    f.data.autoresearchJobs = { research: { runId: "run", status: "running", mode: "campaign" } };
+    delete f.data.researchJobs;
+    await f.run();
+    assert.equal(f.data.tasks[f.input.id].providerEvents, 1);
+    f.data.autoresearchJobs.research.runId = "other";
+    f.data.tasks[f.input.id].providerEvents = 0;
+    await f.run();
+    assert.equal(f.data.tasks[f.input.id].providerEvents, 0);
+});
+
 test("stale telemetry", async () => {
     for (const mutate of [
         (data) => { data.researchJobs.research.runId = "replacement"; },

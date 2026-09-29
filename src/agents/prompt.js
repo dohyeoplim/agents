@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { buildResearchPrompt } from "../research/prompts.js";
+import { buildCampaignPrompt } from "../autoresearch/prompts.js";
 
 const [worker, briefing, canvas, history, notion, research, autoresearch, remote] = await Promise.all(
     ["worker", "briefing", "canvas", "history", "notion", "research-control", "autoresearch", "remote"].map((name) =>
@@ -13,6 +14,7 @@ function render(template, values) {
 }
 
 export function buildPrompt({ profile, route, skill, input }) {
+    if (input.autoresearchId) return buildCampaignPrompt({ profile, route, input });
     if (input.researchStage) return buildResearchPrompt({ profile, route, input });
     const values = {
         profile: profile.instructions,

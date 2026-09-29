@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { planInput } from "./plan.js";
+import { campaignInput } from "./campaign-schema.js";
 
 const description = z.array(z.string().min(1)).min(1).transform((lines) => lines.join(" "));
 const descriptions = z.object({
@@ -8,6 +9,8 @@ const descriptions = z.object({
     autoresearch_propose: description,
     autoresearch_control: description,
     autoresearch_manifest: description,
+    autoresearch_campaign: description,
+    autoresearch_result: description,
 }).strict().parse(JSON.parse(await readFile(new URL("./tools.json", import.meta.url), "utf8")));
 
 const revision = z.number().int().nonnegative();
@@ -18,7 +21,7 @@ export const proposalInput = z.object({ plan: planInput, id: z.uuid().optional()
     message: "An existing plan requires its id and revision",
 });
 export const controlInput = z.object({ id: z.uuid(), revision,
-    action: z.enum(["approve", "cancel", "refresh"]) }).strict();
+    action: z.enum(["approve", "cancel", "refresh", "start", "pause", "resume"]) }).strict();
 export const manifestInput = z.object({ id: z.uuid(),
     offset: z.number().int().nonnegative().default(0) }).strict();
 
@@ -33,5 +36,9 @@ export function createAutoresearchTools(service) {
             readOnly: false, run: (args, context, signal) => service.act(args, context, signal) },
         autoresearch_manifest: { description: descriptions.autoresearch_manifest, schema: manifestInput,
             run: (args, context) => service.readManifest(args, context) },
+        autoresearch_campaign: { description: descriptions.autoresearch_campaign, schema: campaignInput,
+            readOnly: false, run: (args, context, signal) => service.campaign(args, context, signal) },
+        autoresearch_result: { description: descriptions.autoresearch_result, schema: manifestInput,
+            run: (args, context) => service.readResult(args, context) },
     };
 }

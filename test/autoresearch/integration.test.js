@@ -8,7 +8,7 @@ test("tool registration", async () => {
         propose: async (...args) => { calls.push(args); return { status: "draft" }; },
     } });
     const definitions = tools.definitions.filter((tool) => tool.name.startsWith("autoresearch_"));
-    assert.equal(definitions.length, 4);
+    assert.equal(definitions.length, 6);
     const definition = definitions.find((tool) => tool.name === "autoresearch_propose");
     assert.equal(definition.inputSchema.properties.plan.type, "object");
     const context = { id: "task" };

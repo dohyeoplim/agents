@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { idleWatchdog, researchIdleTimeout } from "./rpc.js";
-import { researchTools } from "../research/policy.js";
+import { researchTools, campaignTools } from "../research/policy.js";
 import { providerError } from "../shared/diagnostics.js";
 
 const builtin = ["WebSearch", "WebFetch"];
@@ -16,7 +16,8 @@ export function claudeArguments(toolToken) {
         "--disable-slash-commands", "--no-session-persistence", "--permission-mode", "dontAsk",
         "--strict-mcp-config", "--mcp-config", JSON.stringify({ mcpServers: servers }),
         "--tools", builtin.join(","), "--allowedTools",
-        [...builtin, ...(toolToken ? researchTools.map((name) => `mcp__personal__${name}`) : [])].join(",")];
+        [...builtin, ...(toolToken ? [...new Set([...researchTools, ...campaignTools])]
+            .map((name) => `mcp__personal__${name}`) : [])].join(",")];
 }
 
 export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executable = "claude",

@@ -75,8 +75,9 @@ const canvasOptions = { token: process.env.SLACK_BOT_TOKEN, state, workspaceUrl:
 const canvases = createCanvasWorkspace({ ...canvasOptions, resources, create: createCanvases(canvasOptions).create });
 const history = createSlackHistory({ token: process.env.SLACK_BOT_TOKEN, workspaceUrl: identity.url });
 const historyContext = createHistoryContext({ state, history });
-const autoresearch = createAutoresearch({ state, artifacts, config: loadConfig });
 const remote = createRemoteWorkspace({ config: loadConfig, personal: loadPersonal });
+const autoresearch = createAutoresearch({ state, artifacts, config: loadConfig, remote, post,
+    execute: (...args) => campaignExecute(...args) });
 const tools = createTools({ personal: loadPersonal, weather: createWeather(), calendar: createCalendar(),
     arxiv, library, state, canvases, history, research: researchLibrary, autoresearch, remote,
     researchControl: {
@@ -86,6 +87,8 @@ const tools = createTools({ personal: loadPersonal, weather: createWeather(), ca
 const toolServer = createToolServer({ tools, state, config: loadConfig, personal: loadPersonal,
     healthy: async () => !runtime.closed && !runtime.broken && await state.healthy() });
 const briefingContext = createBriefingContext({ tools, personal: loadPersonal });
+const campaignExecute = createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN,
+    resources, toolServer, historyContext });
 const runtime = new TaskRuntime({
     store: state,
     deliver: createDelivery({ state, streams, post, client: app.client, config: loadConfig }),
@@ -137,7 +140,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         stopBriefings();
         clearInterval(channelTimer);
         await research.stop();
-        autoresearch.stop();
+        await autoresearch.stop();
         await app.stop();
         await channels.stop();
         await messages.idle();

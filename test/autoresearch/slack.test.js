@@ -39,9 +39,21 @@ test("offline actions", () => {
         const result = renderAutoresearch(job);
         const buttons = result.blocks.find((block) => block.type === "actions")?.elements || [];
         assert.deepEqual(buttons.map((button) => button.text.text), labels);
-        assert.match(result.blocks[2].elements[0].text, /연결되지/);
+        assert.match(result.blocks[2].elements[0].text, /실행 명세 준비/);
         assert.match(result.text, /Auto Research/);
     }
+});
+
+test("campaign connection", async () => {
+    const { job, ui, calls } = fixture({ mode: "campaign", campaign: {
+        maxSteps: 24, maxCommands: 24, wallSeconds: 28800, gpuSeconds: 115200,
+        trialSeconds: 1800, gpus: 4, timezone: "Asia/Seoul", questions: [],
+    } });
+    await ui.publish({ ...job, connection: { configured: true, connected: null } });
+    const message = calls.find(([kind]) => kind === "update")[1];
+    assert.match(message.blocks[2].elements[0].text, /아직 확인하지/);
+    assert.deepEqual(message.blocks.find((block) => block.type === "actions").elements
+        .map((button) => button.text.text), ["Start", "Cancel"]);
 });
 
 test("action replay", async () => {
