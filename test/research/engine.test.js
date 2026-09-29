@@ -8,7 +8,7 @@ import { createArtifactStore } from "../../src/storage/artifacts.js";
 import { createResearchLibrary } from "../../src/research/library.js";
 import { createResearchEngine, researchOutput } from "../../src/research/engine.js";
 
-async function fixture(t, execute) {
+async function fixture(t, execute, canvases) {
     const directory = await mkdtemp(join(tmpdir(), "research-engine-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const job = { id: "job", team: "T", user: "U", channel: "C", thread: "1.000001", key: "thread",
@@ -18,7 +18,7 @@ async function fixture(t, execute) {
         artifacts: createArtifactStore({ directory: join(directory, "artifacts") }) });
     const calls = [];
     const posts = [];
-    const engine = createResearchEngine({ state, library, publish: async () => {},
+    const engine = createResearchEngine({ state, library, canvases, publish: async () => {},
         post: async (job, text) => { posts.push({ job, text }); },
         execute: async (task, signal) => {
             calls.push(task);
@@ -83,7 +83,7 @@ test("partial failure", async (t) => {
         if (task.researchStage === "counter") throw Error("Provider offline");
         return "Saved Codex research";
     });
-    await assert.rejects(engine.run(job, signal()), /Claude counter failed/);
+    await assert.rejects(engine.run(job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
     assert.deepEqual(calls.map((task) => task.researchStage), ["explore", "counter"]);
     const current = state.snapshot().researchJobs.job;
     assert.notEqual(current.status, "completed");
@@ -132,10 +132,82 @@ test("duplicate evidence", async (t) => {
     assert.equal(state.snapshot().researchJobs.job.status, "completed");
 });
 
+test("alternating gaps", async (t) => {
+    let pass = 0;
+    const { engine, job, state } = await fixture(t, async (task, { library }) => {
+        if (task.researchStage === "explore") {
+            if (++pass > 3) throw Error("Research cycle repeated");
+            await library.save({ title: "Paper " + pass, url: "https://example.com/" + pass,
+                text: "Evidence " + pass, coverage: "excerpt" }, task);
+        }
+        return task.researchStage === "review" ? JSON.stringify({ verdict: "needs_research", feedback: [],
+            gaps: [pass % 2 ? "  Measure   LATENCY " : "Measure accuracy"] }) : "Findings";
+    });
+    await engine.run(job, signal());
+    assert.equal(pass, 3);
+    assert.deepEqual(state.snapshot().researchJobs.job.checkpoint.seenGaps,
+        ["measure latency", "measure accuracy"]);
+    assert.equal(state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("durable convergence", async (t) => {
+    let pass = 0;
+    let fail = true;
+    const f = await fixture(t, async (task, { library }) => {
+        if (task.researchStage === "explore") {
+            if (++pass > 3) throw Error("Research cycle repeated after resume");
+            await library.save({ title: "Paper " + pass, url: "https://example.com/" + pass,
+                text: "Evidence " + pass, coverage: "excerpt" }, task);
+        }
+        if (task.researchStage === "review") {
+            if (pass === 3 && fail) throw Error("Provider unavailable");
+            return JSON.stringify({ verdict: "needs_research", feedback: [],
+                gaps: [pass % 2 ? "Measure latency" : "Measure accuracy"] });
+        }
+        return "Findings";
+    });
+    await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
+    fail = false;
+    await f.engine.run(await resume(f.state), signal());
+    assert.equal(pass, 3);
+    assert.equal(f.state.snapshot().researchJobs.job.status, "completed");
+});
+
+test("new gap progress", async (t) => {
+    let pass = 0;
+    const { engine, job, state, calls } = await fixture(t, async (task, { library }) => {
+        if (task.researchStage === "explore") {
+            pass++;
+            await library.save({ title: "Paper " + pass, url: "https://example.com/" + pass,
+                text: "Evidence " + pass, coverage: "excerpt" }, task);
+        }
+        return task.researchStage === "review" ? pass > 4 ? ready : JSON.stringify({
+            verdict: "needs_research", feedback: [], gaps: ["Gap 1", "Gap " + pass],
+        }) : "Findings";
+    });
+    await engine.run(job, signal());
+    assert.equal(pass, 5);
+    const exploration = calls.filter((task) => task.researchStage === "explore").at(-1);
+    assert.deepEqual(JSON.parse(exploration.prompt).gaps, ["Gap 4"]);
+    assert.equal(state.snapshot().researchJobs.job.status, "completed");
+});
+
 test("Canvas export", async (t) => {
     const full = "Long findings\n".repeat(2500);
-    const { engine, job, library, state, posts, calls } = await fixture(t, async (task) =>
-        task.researchStage === "review" ? ready : task.researchStage === "canvas" ? "Saved canvas" : full);
+    const saved = [];
+    const canvases = {
+        create: async ({ markdown }) => {
+            saved.push(markdown);
+            return { canvasId: "F123456", url: "https://example.slack.com/docs/T1/F123456" };
+        },
+        read: async () => ({ readId: "receipt", revision: "initial" }),
+        update: async ({ markdown }) => {
+            saved.push(markdown);
+            return { status: "applied", after: { revision: "updated" } };
+        },
+    };
+    const { engine, job, library, state, posts, calls } = await fixture(t,
+        async (task) => task.researchStage === "review" ? ready : full, canvases);
     await engine.run(job, signal());
     const completed = state.snapshot().researchJobs.job;
     assert.ok(posts[0].text.length < full.length);
@@ -148,8 +220,11 @@ test("Canvas export", async (t) => {
     } while (offset !== null);
     assert.equal(text, full);
     await state.update((data) => { data.researchJobs.job.status = "running"; });
+    const before = calls.length;
     await engine.canvas(state.snapshot().researchJobs.job, signal());
-    assert.equal(JSON.parse(calls.at(-1).prompt).finalReportId, completed.finalReportId);
+    assert.equal(calls.length, before);
+    assert.equal(saved.join(""), full);
+    assert.match(posts.at(-1).text, /https:\/\/example.slack.com\/docs\/T1\/F123456/);
 });
 
 test("stale results", async (t) => {
@@ -200,7 +275,7 @@ test("review resumption", async (t) => {
         }
         return task.researchStage + " findings";
     });
-    await assert.rejects(f.engine.run(f.job, signal()), /Claude review failed/);
+    await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
     const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
     assert.deepEqual(Object.keys(checkpoint.reports).sort(), ["counter", "explore", "synthesize"]);
     const before = f.calls.length;
@@ -219,7 +294,7 @@ test("revision resumption", async (t) => {
         if (task.researchStage === "revise" && fail) throw Error("Revision unavailable");
         return task.researchStage + " findings";
     });
-    await assert.rejects(f.engine.run(f.job, signal()), /Codex revise failed/);
+    await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "codex" });
     const checkpoint = f.state.snapshot().researchJobs.job.checkpoint;
     const before = f.calls.length;
     fail = false;
@@ -303,7 +378,7 @@ test("partial resumption", async (t) => {
         if (f.state.snapshot().researchJobs.job.checkpoint?.reports.explore) saved.resolve();
         return result;
     };
-    await assert.rejects(f.engine.run(f.job, signal()), /Claude counter failed/);
+    await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
     const before = f.calls.length;
     const explored = f.state.snapshot().researchJobs.job.checkpoint.reports.explore;
     fail = false;
@@ -345,7 +420,7 @@ test("investigation resumption", async (t) => {
         if (checkpoint?.previousGaps && checkpoint.reports.explore) saved.resolve();
         return result;
     };
-    await assert.rejects(f.engine.run(f.job, signal()), /Claude counter failed/);
+    await assert.rejects(f.engine.run(f.job, signal()), { code: "PROVIDER_FAILED", provider: "claude" });
     const failed = f.state.snapshot().researchJobs.job;
     const checkpoint = failed.checkpoint;
     assert.equal(explorations, 2);

@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { failureCode, logFailure, providerError } from "../shared/diagnostics.js";
 import { appendTask } from "../tasks/runtime.js";
 import { researchText } from "./copy.js";
 import { researchAncestors } from "./library.js";
+import { createResearchExport } from "./export.js";
 
 const clarification = z.object({ ready: z.boolean(), title: z.string().trim().min(1).max(150),
     brief: z.string().trim().min(1).max(6000), questions: z.array(z.string().trim().min(1).max(500)).max(3),
@@ -9,6 +11,7 @@ const clarification = z.object({ ready: z.boolean(), title: z.string().trim().mi
 const review = z.object({ verdict: z.enum(["ready", "revise", "needs_research"]),
     feedback: z.array(z.string().max(1500)).max(12), gaps: z.array(z.string().max(1500)).max(12),
 }).strict();
+const normalizeGap = (gap) => gap.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 
 export function researchOutput(text, kind) {
     const content = text.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1");
@@ -16,8 +19,9 @@ export function researchOutput(text, kind) {
     catch { throw Error(researchText("RESEARCH_OUTPUT_INVALID", { kind })); }
 }
 
-export function createResearchEngine({ state, execute, library, publish, post, now = Date.now }) {
+export function createResearchEngine({ state, execute, library, canvases, publish, post, now = Date.now }) {
     const get = (id) => state.snapshot().researchJobs[id];
+    const exportReport = createResearchExport({ state, library, canvases });
 
     async function update(id, runId, changes, scopeVersion) {
         const result = await state.update((data) => {
@@ -77,13 +81,11 @@ export function createResearchEngine({ state, execute, library, publish, post, n
         } catch (error) {
             await state.update((data) => {
                 Object.assign(data.tasks[task.id], { status: signal.aborted ? "cancelled" : "failed",
-                    delivery: "suppressed", finishedAt: Date.now() });
+                    delivery: "suppressed", finishedAt: Date.now(), errorCode: failureCode(error) });
             });
             if (signal.aborted) throw error;
-            throw Error(researchText(error.code === "RESEARCH_STALLED" ? "RESEARCH_STALLED" :
-                "RESEARCH_STAGE_FAILED", {
-                provider: provider === "claude" ? "Claude" : "Codex", stage: researchStage,
-            }));
+            logFailure(error, { component: "research", taskId: task.id, provider, stage: researchStage });
+            throw providerError(provider, error);
         }
     }
 
@@ -155,7 +157,7 @@ export function createResearchEngine({ state, execute, library, publish, post, n
             const checkpoint = await saveCheckpoint((current) => {
                 if (current.checkpoint?.version !== (current.scopeVersion || 0)) {
                     current.checkpoint = { version: current.scopeVersion || 0, reports: {},
-                        gaps: [], feedback: [], sourcesBefore: sourceCount() };
+                        gaps: [], feedback: [], seenGaps: [], sourcesBefore: sourceCount() };
                 }
             });
             if (!get(id).finishRequested) {
@@ -168,12 +170,15 @@ export function createResearchEngine({ state, execute, library, publish, post, n
             await update(id, runId, { stage: researchText("STAGE_REVIEW"), draftReportId: draft.id });
             const critique = await executeStage("review", "claude", signal, { draftReportId: draft.id });
             const assessment = researchOutput(critique.text, "review");
-            const fingerprint = JSON.stringify(assessment.gaps.map((gap) => gap.toLowerCase().trim()).sort());
-            if (assessment.verdict === "needs_research" && assessment.gaps.length &&
-                !get(id).finishRequested && gainedEvidence && fingerprint !== checkpoint.previousGaps) {
+            const seenGaps = new Set([...(checkpoint.seenGaps || []), ...checkpoint.gaps.map(normalizeGap)]);
+            const newGaps = assessment.gaps.filter((gap) => normalizeGap(gap) && !seenGaps.has(normalizeGap(gap)));
+            const fingerprint = JSON.stringify(assessment.gaps.map(normalizeGap).sort());
+            if (assessment.verdict === "needs_research" && newGaps.length &&
+                !get(id).finishRequested && gainedEvidence) {
                 await saveCheckpoint((current) => {
                     current.checkpoint = { version, reports: {}, sourcesBefore: sourceCount(),
-                        previousGaps: fingerprint, gaps: assessment.gaps, feedback: assessment.feedback };
+                        previousGaps: fingerprint, gaps: newGaps, feedback: assessment.feedback,
+                        seenGaps: [...new Set([...seenGaps, ...assessment.gaps.map(normalizeGap)])] };
                 });
                 continue;
             }
@@ -204,11 +209,9 @@ export function createResearchEngine({ state, execute, library, publish, post, n
 
     async function canvas(job, signal) {
         await update(job.id, job.runId, { stage: researchText("STAGE_CANVAS") });
-        const result = await stage(job.id, job.runId, "canvas", "codex", signal, {
-            finalReportId: job.finalReportId,
-        });
+        const url = await exportReport(job, signal);
         await update(job.id, job.runId, { status: "completed", stage: "", canvasBusy: false });
-        await post(get(job.id), result.text);
+        await post(get(job.id), researchText("RESEARCH_CANVAS_SAVED", { url }));
     }
 
     return { clarify, run, canvas };

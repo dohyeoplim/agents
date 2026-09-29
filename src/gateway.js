@@ -27,14 +27,17 @@ import { createHistoryContext } from "./slack/history-context.js";
 import { createResearchLibrary } from "./research/library.js";
 import { createResearch } from "./research/service.js";
 import { createResearchSlack } from "./research/slack.js";
+import { logFailure } from "./shared/diagnostics.js";
 
 const config = await loadConfig();
 const state = await new PostgresState({ legacyFile: "/state/conversations.json" }).load();
 const quietLogger = {
     debug() {},
     info() {},
-    warn() { console.warn("Slack warning"); },
-    error() { console.error("Slack error"); },
+    warn(...args) { logFailure(args.find((value) => value && typeof value === "object"),
+        { component: "slack" }, console.warn); },
+    error(...args) { logFailure(args.find((value) => value && typeof value === "object"),
+        { component: "slack" }); },
     setLevel() {},
     getLevel() { return "error"; },
     setName() {},
@@ -84,7 +87,7 @@ const runtime = new TaskRuntime({
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources, streams,
         toolServer, briefingContext, historyContext }),
 });
-const research = createResearch({ state, library: researchLibrary, config: loadConfig, post,
+const research = createResearch({ state, library: researchLibrary, config: loadConfig, post, canvases,
     execute: createTaskExecutor({ state, token: process.env.SLACK_BOT_TOKEN, resources, toolServer, historyContext }),
 });
 const researchSlack = createResearchSlack({ client: app.client, state, config: loadConfig, control: research.control });

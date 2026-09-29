@@ -6,6 +6,7 @@ import { researchText } from "./copy.js";
 import { proposalInput, controlInput, resultInput, statusInput } from "./tools.js";
 import { researchActions } from "./actions.js";
 import { researchProgress } from "./progress.js";
+import { failureCode, failureMessage, logFailure } from "../shared/diagnostics.js";
 
 const resumable = ["paused", "interrupted", "failed"];
 const activeStatuses = ["queued", "running", "clarifying"];
@@ -13,7 +14,8 @@ const sameOwner = (job, context) => ["team", "user", "channel", "thread"].every(
 const timestamp = (value) => /^\d+\.\d{1,6}$/.test(value || "") ?
     BigInt(value.split(".")[0] + value.split(".")[1].padEnd(6, "0")) : null;
 
-export function createResearch({ state, execute, library, config, post, personal = loadPersonal, now = Date.now }) {
+export function createResearch({ state, execute, library, config, post, canvases,
+    personal = loadPersonal, now = Date.now }) {
     const active = new Map();
     const pending = new Map();
     let ui;
@@ -141,7 +143,7 @@ export function createResearch({ state, execute, library, config, post, personal
         return post(job, text);
     }
 
-    const engine = createResearchEngine({ state, execute, library, publish, post: send, now });
+    const engine = createResearchEngine({ state, execute, library, publish, post: send, now, canvases });
 
     function pump() {
         if (closed) return;
@@ -174,12 +176,14 @@ export function createResearch({ state, execute, library, config, post, personal
                 await engine[mode](get(id), controller.signal);
             }).catch(async (error) => {
                 if (controller.signal.aborted) return;
+                logFailure(error, { component: "research", stage: mode });
                 const failed = await state.update((data) => {
                     const current = data.researchJobs[id];
                     if (current.runId !== job.runId || !activeStatuses.includes(current.status)) return null;
                     Object.assign(current, { status: mode === "canvas" ? "completed" : "failed", canvasBusy: false,
                         ...(mode === "canvas" ? { stage: "" } : {}),
-                        error: String(error.message).slice(0, 500), revision: current.revision + 1,
+                        error: error.code ? failureMessage(failureCode(error)) : String(error.message).slice(0, 500),
+                        errorCode: failureCode(error), revision: current.revision + 1,
                         updatedAt: Date.now() });
                     return current;
                 });

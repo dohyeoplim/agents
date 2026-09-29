@@ -84,5 +84,11 @@
     "RESEARCH_STALLED": "{{provider}} stopped after no execution events. Resume to retry.",
     "RESEARCH_REPORT_PARTIAL": "표시 길이 제한으로 보고서 일부만 표시했습니다. Save to Canvas로 전체 보고서를 저장할 수 있습니다.",
     "RESEARCH_REPORT_UNCONFIRMED": "Report delivery is uncertain. Use Save to Canvas to read the saved report.",
-    "RESEARCH_USE_CONTROLS": "Use Pause or Resume on the research status message."
+    "RESEARCH_USE_CONTROLS": "Use Pause or Resume on the research status message.",
+    "RESEARCH_CANVAS_SAVED": "보고서를 Canvas에 저장했습니다. {{url}}",
+    "RESEARCH_CANVAS_UNAVAILABLE": "Canvas export is unavailable.",
+    "RESEARCH_CANVAS_BLOCK_LIMIT": "A report block exceeds the Canvas content limit. The saved report is unchanged.",
+    "RESEARCH_CANVAS_UNCERTAIN": "Canvas delivery is uncertain. Read and reconcile it before retrying export.",
+    "RESEARCH_CANVAS_UNVERIFIED": "Canvas accepted the content, but its revision could not be verified. Do not append again.",
+    "RESEARCH_CANVAS_CHANGED": "The exported Canvas was edited. Review it before continuing export."
 }

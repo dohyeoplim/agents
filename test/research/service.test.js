@@ -11,7 +11,7 @@ const proposal = { title: plan.title, brief: plan.brief, questions: [] };
 const taskContext = { ...context, id: "task1" };
 const deferred = () => Promise.withResolvers();
 
-function fixture(run, send, authorize) {
+function fixture(run, send, authorize, canvases) {
     let data = { researchJobs: {}, researchSources: {}, tasks: {}, threads: {}, events: {} };
     let tail = Promise.resolve();
     const state = { snapshot: () => structuredClone(data), update: (change) => {
@@ -45,7 +45,7 @@ function fixture(run, send, authorize) {
     };
     const post = async (job, text) => { sent.push({ job, text }); await send?.(job, text); };
     let now = 100001;
-    const service = createResearch({ state, execute, library, config, post, now: () => now,
+    const service = createResearch({ state, execute, library, config, post, canvases, now: () => now,
         personal: async () => ({ owner: "U1" }) });
     service.attach({ publish: async (job) => { published.push(job); } });
     const job = () => Object.values(state.snapshot().researchJobs).at(-1);
@@ -495,12 +495,11 @@ test("running cancellation", async () => {
 
 test("export pause", async () => {
     const started = deferred();
-    const f = fixture(async (task, signal) => {
-        if (task.researchStage !== "canvas") return;
+    const f = fixture(undefined, undefined, undefined, { create: async (_, context, signal) => {
         started.resolve();
         await new Promise((resolve, reject) => signal.addEventListener("abort",
             () => reject(signal.reason), { once: true }));
-    });
+    } });
     const initial = await f.ready();
     await f.service.control(initial.id, "start", undefined, context);
     await f.service.idle();
