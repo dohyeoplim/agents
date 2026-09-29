@@ -7,6 +7,7 @@ import { sourceInput, sourcesInput, sourceReadInput } from "../research/library.
 import { createResearchControlTools } from "../research/tools.js";
 import { createAutoresearchTools } from "../autoresearch/tools.js";
 import { createRemoteTools } from "../remote/tools.js";
+import { argumentError } from "./validation.js";
 
 const empty = z.object({}).strict();
 const id = z.string().max(200).transform(paperId);
@@ -177,7 +178,7 @@ export function createTools({ personal, weather, calendar, arxiv, library, state
             if (!Object.hasOwn(tools, name)) throw Error("Unknown tool");
             const tool = tools[name];
             const parsed = tool.schema.safeParse(args);
-            if (!parsed.success) throw Error("Invalid tool arguments");
+            if (!parsed.success) throw argumentError(parsed.error, z.toJSONSchema(tool.schema, { io: "input" }));
             signal?.throwIfAborted();
             return tool.run(parsed.data, context, signal);
         },
