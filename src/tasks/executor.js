@@ -5,6 +5,7 @@ import { sessionFor } from "./runtime.js";
 import { resourceContext } from "../resources/context.js";
 import { workerResponse } from "./response.js";
 import { loadPersonal } from "../integrations/settings.js";
+import { providerError } from "../shared/diagnostics.js";
 
 export function createTaskExecutor({
     state, token, resources, streams, toolServer, briefingContext, historyContext,
@@ -38,7 +39,8 @@ export function createTaskExecutor({
                 const session = research ? undefined : sessionFor(data, task);
                 const history = historyContext && (!research || task.researchStage === "clarify") ?
                     await historyContext.hydrate(task, session, signal) : { text: "" };
-                const sources = resources && !task.briefingDate ? await resources.collect(task, signal) :
+                const sources = resources && !task.briefingDate ?
+                    await resources.collect(task, signal, { discover: !research }) :
                     { sources: [], notices: [] };
                 const sourceContext = task.briefingDate ? await briefingContext(task, signal) :
                     resourceContext(sources, task.prompt);
@@ -60,8 +62,7 @@ export function createTaskExecutor({
                         notionAccess: notionOwner && Boolean(grant?.token),
                     }),
                     signal: research ? signal : AbortSignal.any([signal, AbortSignal.timeout(620000)]),
-                });
-                if (!response.ok) throw Error("Worker failed");
+                }).catch((error) => { throw providerError(task.provider || "codex", error, "WORKER_FAILED"); });
                 const result = await workerResponse(response, research ? undefined :
                     (text) => streams?.update(task, text), { longRunning: research,
                     onProgress: research ? async (progress) => {

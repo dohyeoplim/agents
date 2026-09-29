@@ -5,11 +5,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { researchToolAllowed } from "../research/policy.js";
 
-export function createToolServer({ tools, state, config, personal, healthy, now = Date.now }) {
+export function createToolServer({ tools, state, config, personal, healthy }) {
     const grants = new Map();
     const grant = (task, signal) => {
         const token = randomBytes(32).toString("base64url");
-        grants.set(token, { task, signal, until: now() + 12 * 60000, calls: 0, pending: 0 });
+        grants.set(token, { task, signal, calls: 0, pending: 0 });
         return { token, revoke: () => grants.delete(token) };
     };
     const server = http.createServer(async (req, res) => {
@@ -35,7 +35,6 @@ export function createToolServer({ tools, state, config, personal, healthy, now 
                 if (!job || job.runId !== task.researchRunId || !["running", "clarifying"].includes(job.status) ||
                     ["team", "user", "channel"].some((key) => job[key] !== task[key])) return reject(403);
             }
-            if (access.until <= now()) access.until = now() + 12 * 60000;
             const parts = [];
             let size = 0;
             for await (const part of req) {

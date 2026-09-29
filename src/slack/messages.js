@@ -39,6 +39,29 @@ export function createMessageHandler({
     config = loadConfig, profiles = loadProfiles, skills = loadSkills,
 }) {
     const events = new SerialQueue();
+    const threads = new Map();
+    const processing = new Map();
+
+    function dispatch(id) {
+        if (processing.has(id)) return processing.get(id);
+        const item = state.snapshot().inbox[id];
+        let queue;
+        if (item.prompt.trim() !== "!stop") {
+            if (processing.size >= 32) return Promise.reject(Error("Queue full"));
+            queue = threads.get(item.key) || new SerialQueue();
+            threads.set(item.key, queue);
+        }
+        const work = (queue ? queue.run(() => process(id)) : process(id)).finally(() => {
+            processing.delete(id);
+            if (queue && threads.get(item.key) === queue) {
+                void queue.tail.then(() => {
+                    if (!queue.pending && threads.get(item.key) === queue) threads.delete(item.key);
+                });
+            }
+        });
+        processing.set(id, work);
+        return work;
+    }
     const contextFor = (item) => ({
         team: item.team, user: item.user, channel: item.channel, thread: item.thread,
         key: item.key, profile: item.profile, fileIds: item.fileIds, messageTs: item.messageTs,
@@ -71,10 +94,12 @@ export function createMessageHandler({
     }
 
     async function finish(id, response, status = "processed") {
-        await state.update((data) => {
+        const finished = await state.update((data) => {
+            if (data.inbox[id].status === "cancelled") return false;
             Object.assign(data.inbox[id], { status, response, delivery: "pending", completedAt: Date.now() });
+            return true;
         });
-        await reply(id);
+        if (finished) await reply(id);
     }
 
     async function process(id) {
@@ -102,6 +127,10 @@ export function createMessageHandler({
                     await finish(id, "Cancellation requested: " + cancelled.map((id) => id.slice(0, 8)).join(", "));
                     return;
                 }
+                if (item.cancelledRequests) {
+                    await finish(id, "Pending requests cancelled.");
+                    return;
+                }
             } catch (error) {
                 await finish(id, error.message, "failed");
                 return;
@@ -124,7 +153,12 @@ export function createMessageHandler({
             return;
         }
         if (!task) {
-            await state.update((data) => { data.inbox[id].status = "processing"; });
+            const claimed = await state.update((data) => {
+                if (data.inbox[id].status !== "pending") return false;
+                data.inbox[id].status = "processing";
+                return true;
+            });
+            if (!claimed) return;
             let response;
             try {
                 response = await commandReply(command, context, {
@@ -166,25 +200,28 @@ export function createMessageHandler({
     }
 
     async function handle({ body, event }) {
-        await events.run(async () => {
+        const accepted = await events.run(async () => {
             const current = await config();
             const selected = routeEvent(current, body, event, bot, (key) => !!state.snapshot().threads[key]);
             if (!selected) return;
             const accepted = await state.update((data) => {
                 data.inbox ??= {};
                 if (data.events[selected.eventId] || data.inbox[selected.eventId]) return false;
-                const thread = data.threads[selected.key] ??= { session: null };
-                if (selected.fileIds.length) {
-                    thread.filesByUser ??= {};
-                    thread.filesByUser[event.user] = [...new Set([
-                        ...(thread.filesByUser[event.user] || []), ...selected.fileIds,
-                    ])].slice(-6);
+                data.threads[selected.key] ??= { session: null };
+                let cancelledRequests = 0;
+                if (selected.prompt.trim() === "!stop") {
+                    for (const item of Object.values(data.inbox)) {
+                        if (item.key !== selected.key || item.user !== event.user || item.status !== "pending" ||
+                            item.prompt.trim() === "!stop") continue;
+                        Object.assign(item, { status: "cancelled", completedAt: Date.now() });
+                        cancelledRequests++;
+                    }
                 }
                 data.inbox[selected.eventId] = {
                     id: selected.eventId, team: current.team, user: event.user, channel: event.channel,
                     thread: selected.thread, key: selected.key, profile: profileFor(selected.route),
                     prompt: selected.prompt, text: event.text || "", messageTs: event.ts,
-                    fileIds: thread.filesByUser?.[event.user] || [], status: "pending", createdAt: Date.now(),
+                    fileIds: selected.fileIds, cancelledRequests, status: "pending", createdAt: Date.now(),
                 };
                 for (const [id, at] of Object.entries(data.events)) {
                     if (Date.now() - at > 7 * 86400000) delete data.events[id];
@@ -196,13 +233,14 @@ export function createMessageHandler({
                 return true;
             });
             if (accepted || state.snapshot().inbox[selected.eventId]?.status === "pending") {
-                await process(selected.eventId);
+                return { work: dispatch(selected.eventId) };
             }
         });
+        await accepted?.work;
     }
 
     async function recover() {
-        await events.run(async () => {
+        const pending = await events.run(async () => {
             await state.update((data) => {
                 data.inbox ??= {};
                 for (const item of Object.values(data.inbox)) {
@@ -215,11 +253,17 @@ export function createMessageHandler({
                     } else if (item.delivery === "sending") item.delivery = "uncertain";
                 }
             });
-            for (const [id, item] of Object.entries(state.snapshot().inbox)) {
-                if (item.status === "pending") await process(id);
-                else if (item.delivery === "pending") await reply(id);
-            }
+            return Object.entries(state.snapshot().inbox).filter(([, item]) =>
+                item.status === "pending" || item.delivery === "pending");
         });
+        for (let offset = 0; offset < pending.length; offset += 32) {
+            await Promise.all(pending.slice(offset, offset + 32).map(([id, item]) =>
+                item.status === "pending" ? dispatch(id) : reply(id)));
+        }
     }
-    return { handle, recover, idle: () => events.tail };
+    async function idle() {
+        await events.tail;
+        while (processing.size) await Promise.allSettled([...processing.values()]);
+    }
+    return { handle, recover, idle };
 }

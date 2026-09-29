@@ -138,6 +138,50 @@ test("external sources", async () => {
     assert.ok(calls.every((call) => call.url.hostname === "slack.com"));
 });
 
+test("irrelevant sources", async () => {
+    const { resources, calls } = fixture({ bookmarks: [
+        { id: "B1", type: "file", entity_id: id, title: "Quantum computing" },
+    ] });
+    const result = await resources.collect({ channel: "C1", prompt: "고마워" });
+    assert.deepEqual(result.sources, []);
+    assert.equal(calls.filter((call) => call.url.pathname.endsWith("files.info")).length, 0);
+    assert.ok(calls.every((call) => call.url.hostname === "slack.com"));
+});
+
+test("matching sources", async () => {
+    const { resources } = fixture({ bookmarks: [
+        { id: "B1", type: "file", entity_id: id, title: "Quantum computing" },
+    ] });
+    const result = await resources.collect({ channel: "C1", prompt: "Explain quantum computing" });
+    assert.equal(result.sources[0].id, id);
+});
+
+test("explicit sources", async () => {
+    for (const input of [{ fileIds: [id], prompt: "Review this" },
+        { prompt: "Review https://example.slack.com/files/U1/F123456/file.txt" }]) {
+        const { resources, calls } = fixture();
+        const result = await resources.collect({ channel: "C1", ...input });
+        assert.equal(result.sources[0].id, id);
+        assert.ok(calls.every((call) => !call.url.pathname.endsWith("bookmarks.list") &&
+            !call.url.pathname.endsWith("files.list")));
+    }
+});
+
+test("bound sources", async () => {
+    const { resources, calls } = fixture({ bookmarks: [
+        { id: "B1", type: "file", entity_id: id, title: "Quantum computing" },
+    ] });
+    const empty = await resources.collect({ channel: "C1", prompt: "Quantum computing" },
+        undefined, { discover: false });
+    assert.deepEqual(empty.sources, []);
+    assert.equal(calls.length, 0);
+    const result = await resources.collect({ channel: "C1", prompt: "Quantum computing", fileIds: [id] },
+        undefined, { discover: false });
+    assert.equal(result.sources[0].id, id);
+    assert.ok(calls.every((call) => !call.url.pathname.endsWith("bookmarks.list") &&
+        !call.url.pathname.endsWith("files.list")));
+});
+
 test("resource context", () => {
     const text = resourceContext({ sources: [{ id, title: "Source", text: "a".repeat(24000) }], notices: [] });
     const context = JSON.parse(text);

@@ -57,6 +57,10 @@ test("research execution", async () => {
         config: async () => ({ team: "T1", users: ["U1"], channels: { C1: { agent: "assistant" } } }),
         activity: () => assert.fail("No ordinary activity"),
         streams: { update: () => assert.fail("No ordinary stream") },
+        resources: { collect: async (input, signal, options) => {
+            assert.equal(options.discover, false);
+            return { sources: [], notices: [] };
+        } },
         historyContext: { hydrate: () => assert.fail("No ordinary conversation history") },
         request: async (url, options) => {
             assert.equal(options.signal, controller.signal);

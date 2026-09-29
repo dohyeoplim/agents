@@ -173,16 +173,18 @@ export function createSlackResources({ token, request = fetch, extract = readDoc
         };
     }
 
-    async function collect(task, signal) {
+    async function collect(task, signal, { discover = true } = {}) {
         const budget = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60000)]);
-        const available = await catalog(task.channel, { signal: budget });
+        const explicit = [...new Set([...(task.fileIds || []), ...slackFileIds(task.prompt)])];
+        const available = discover && !explicit.length ? await catalog(task.channel, { signal: budget }) :
+            { items: [], notices: [] };
         const terms = (task.prompt.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).slice(0, 30);
         const ranked = available.items.filter((item) => item.id && item.kind !== "image").map((item) => ({
             ...item,
             score: terms.reduce((sum, term) => sum + Number((item.title || "").toLowerCase().includes(term)), 0),
-        })).sort((a, b) => b.score - a.score);
+        })).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
         const queue = [...new Set([
-            ...(task.fileIds || []), ...slackFileIds(task.prompt), ...ranked.map((item) => item.id),
+            ...explicit, ...ranked.map((item) => item.id),
         ])];
         const sources = [];
         const notices = [...available.notices];

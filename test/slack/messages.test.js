@@ -4,7 +4,7 @@ import { createMessageHandler, createMessageSender } from "../../src/slack/messa
 import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
 
-function fixture({ beforeCommit = () => {}, postReply = () => {}, research, cancelThread } = {}) {
+function fixture({ beforeCommit = () => {}, postReply = () => {}, research, cancelThread, titles, resources } = {}) {
     const data = { events: {}, threads: {}, entries: {}, tasks: {}, schedules: {} };
     const jobs = [];
     const replies = [];
@@ -24,6 +24,8 @@ function fixture({ beforeCommit = () => {}, postReply = () => {}, research, canc
             },
         },
         research,
+        titles,
+        resources,
         runtime: { pumping: false, cancelThread: cancelThread || (async () => []), wake: () => {
             for (const task of Object.values(data.tasks)) {
                 if (!jobs.some((job) => job.id === task.id)) jobs.push(task);
@@ -173,7 +175,7 @@ test("thread attachments", async () => {
     await send("<@BOT> Review this", { subtype: "file_share", files: [{ id: "F123456" }] });
     assert.deepEqual(jobs[0].fileIds, ["F123456"]);
     await send("Explain more", { ts: "100.002", thread_ts: "100.001" });
-    assert.deepEqual(jobs[1].fileIds, ["F123456"]);
+    assert.deepEqual(jobs[1].fileIds, []);
 });
 
 test("sender names", async () => {
@@ -226,4 +228,68 @@ test("ordinary stop", async () => {
     await send("<@BOT> !stop");
     assert.equal(cancellations, 1);
     assert.match(replies[0].text, /Cancellation requested: 12345678/);
+});
+
+test("channel isolation", { timeout: 2000 }, async () => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const { send, current, data } = fixture({ titles: { ensure: async () => {
+        entered.resolve();
+        await release.promise;
+    } }, cancelThread: async () => ["12345678"] });
+    current.channels.C2 = { ...current.channels.C1 };
+    const first = send("<@BOT> work");
+    try {
+        await entered.promise;
+        await send("<@BOT> !stop", { channel: "C2", ts: "100.002" });
+        assert.equal(data.inbox["C2:100.002"].status, "processed");
+    } finally {
+        release.resolve();
+        await first;
+    }
+});
+
+test("priority cancellation", { timeout: 2000 }, async () => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const { send, data, jobs, replies, handler } = fixture({ resources: { catalog: async () => {
+        entered.resolve();
+        await release.promise;
+        return { items: [], folders: [], notices: [] };
+    } } });
+    const first = send("<@BOT> !sources");
+    let queued;
+    try {
+        await entered.promise;
+        queued = send("start research", { thread_ts: "100.001", ts: "100.002" });
+        await send("!stop", { thread_ts: "100.001", ts: "100.003" });
+        assert.equal(data.inbox["C1:100.002"].status, "cancelled");
+        assert.equal(data.inbox["C1:100.003"].status, "processed");
+        assert.match(replies[0].text, /Pending requests cancelled/);
+    } finally {
+        release.resolve();
+        await Promise.all([first, queued]);
+    }
+    await handler.recover();
+    assert.equal(jobs.length, 0);
+});
+
+test("thread ordering", { timeout: 2000 }, async () => {
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const { send, jobs, handler } = fixture({ resources: { catalog: async () => {
+        entered.resolve();
+        await release.promise;
+        return { items: [], folders: [], notices: [] };
+    } } });
+    const first = send("<@BOT> !sources");
+    await entered.promise;
+    const second = send("follow up", { thread_ts: "100.001", ts: "100.002" });
+    await send("<@BOT> separate thread", { ts: "100.003" });
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].prompt, "separate thread");
+    release.resolve();
+    await Promise.all([first, second, handler.idle()]);
+    assert.equal(jobs.length, 2);
+    assert.equal(jobs[1].prompt, "follow up");
 });

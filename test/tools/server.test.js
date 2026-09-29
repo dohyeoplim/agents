@@ -21,9 +21,7 @@ test("gateway readiness", async (t) => {
 
 test("tool authorization", async (t) => {
     const data = { tasks: { task: { status: "running" } } };
-    let now = 0;
     const bridge = createToolServer({
-        now: () => now,
         state: { snapshot: () => data }, personal: async () => ({ owner: "U1" }),
         config: async () => ({ team: "T1", users: ["U1", "U2"], channels: { C1: {} } }),
         tools: { definitions: [{ name: "test", description: "Test", inputSchema: { type: "object" } }],
@@ -44,8 +42,6 @@ test("tool authorization", async (t) => {
     }));
     assert.equal((await client.listTools()).tools[0].name, "test");
     assert.equal(JSON.parse((await client.callTool({ name: "test", arguments: {} })).content[0].text).value, "ok");
-    now += 30 * 60000;
-    assert.equal((await client.listTools()).tools[0].name, "test");
     data.tasks.task.status = "completed";
     await assert.rejects(client.listTools());
     grant.revoke();
