@@ -11,6 +11,9 @@ const clarificationTools = ["slack_messages_read", "slack_messages_search", "sla
     "research_report_read"];
 
 export function researchToolAllowed(task, name) {
+    if (name.startsWith("remote_")) return !task.researchId && !task.scheduleId && !task.briefingDate &&
+        ["remote_status", "remote_exec", "remote_jobs", "remote_job", "remote_cancel", "remote_read",
+            "remote_write"].includes(name);
     if (name.startsWith("autoresearch_")) return !task.researchId && !task.scheduleId && !task.briefingDate &&
         ["autoresearch_status", "autoresearch_propose", "autoresearch_control", "autoresearch_manifest"].includes(name);
     if (!task.researchId) return !name.startsWith("research_") ||

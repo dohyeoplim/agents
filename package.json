@@ -11,7 +11,8 @@
         "gateway": "node src/gateway.js",
         "worker": "node src/worker.js",
         "channels": "node src/channels/cli.js",
-        "integrations": "node src/integrations/cli.js"
+        "integrations": "node src/integrations/cli.js",
+        "remote": "node --env-file-if-exists=.env src/remote/cli.js"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.1",

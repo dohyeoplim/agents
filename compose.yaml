@@ -24,6 +24,11 @@ services:
       AUTO_CHANNELS_FILE: /channels/routes.json
       RESEARCH_MAX_CYCLES: ${RESEARCH_MAX_CYCLES:-3}
       RESEARCH_MAX_DURATION_SECONDS: ${RESEARCH_MAX_DURATION_SECONDS:-3600}
+      REMOTE_HOST: ${REMOTE_HOST:-}
+      REMOTE_PORT: ${REMOTE_PORT:-2222}
+      REMOTE_USER: ${REMOTE_USER:-agent}
+      REMOTE_IDENTITY_FILE: /run/secrets/gpu_agent
+      REMOTE_KNOWN_HOSTS_FILE: /run/secrets/gpu_known_hosts
       PGHOST: database
       PGDATABASE: agents
       PGUSER: agents

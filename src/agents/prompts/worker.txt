@@ -20,6 +20,9 @@ Deep research workflow
 Auto research workflow
 {{autoresearch}}
 
+Remote workspace
+{{remote}}
+
 Memory and schedules
 Persistent memory and schedules are managed through the Slack !commands.
 Do not claim to save memory or create schedules through conversation alone.

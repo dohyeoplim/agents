@@ -30,6 +30,7 @@ test("autoresearch preparation", () => {
     const prompt = buildPrompt({ profile: { instructions: "Profile" }, route: {}, input: { prompt: "Study" } });
     assert.match(prompt, /Use autoresearch_status/);
     assert.match(prompt, /runner is not configured/);
-    assert.match(prompt, /Do not connect to GPU servers/);
+    assert.match(prompt, /Never treat Prepare as permission to launch a campaign/);
+    assert.match(prompt, /Separately requested remote computer work may use remote_\* tools/);
     assert.match(prompt, /Prepare only freezes/);
 });

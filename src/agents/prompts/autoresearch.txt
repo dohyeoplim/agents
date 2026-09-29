@@ -7,8 +7,9 @@ Incomplete plans are drafts. Update them using their id and latest revision, sup
 Explain the primary metric, accuracy constraints, protected evaluation, editable paths, seeds and budgets.
 Budgets are maxima, not a promise of GPU throughput. Each GPU experiment has an independent timeout.
 maxExperiments counts each seed run, including baseline runs and failures, not only successful configurations.
-The runner is not configured. Do not use shell, SSH, network tools or another agent to bypass this limitation.
-Do not connect to GPU servers, download datasets, train models or claim that experiments are queued or running.
+The automated campaign runner is not configured. Never treat Prepare as permission to launch a campaign through other tools.
+Separately requested remote computer work may use remote_* tools within that request's scope.
+Do not claim a prepared campaign is queued or running, even when an independently requested remote command is running.
 Prepare only freezes a versioned manifest. It does not verify the environment or start execution.
 Show the plan and wait for an explicit later user confirmation or the Prepare button before approving it.
 Use autoresearch_control for approve, cancel or refresh. A prepared plan is immutable.
