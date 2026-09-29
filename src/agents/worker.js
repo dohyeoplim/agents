@@ -10,17 +10,19 @@ import { loadSkills, resolveSkill } from "./skills.js";
 import { buildPrompt } from "./prompt.js";
 import { runClaude } from "./claude.js";
 import { researchStages } from "../research/policy.js";
+import { failureCode, failureMessage, logFailure } from "../shared/diagnostics.js";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createWorker({
     config = loadConfig, profiles = loadProfiles, skills = loadSkills, run = runAppServer,
-    workspace = "/workspace", agent = process.env.AGENT_ID, claude = runClaude,
+    workspace = "/workspace", agent = process.env.AGENT_ID, claude = runClaude, logger = console.error,
 } = {}) {
     const sessions = new Map();
     const jobs = new Map();
     let researchJobs = 0;
     return http.createServer(async (req, res) => {
+        let context = { component: "worker" };
         const reply = (status, data) => {
             if (res.destroyed) return;
             if (res.headersSent) {
@@ -82,6 +84,7 @@ export function createWorker({
                 return reply(400, { error: "Invalid request" });
             }
             const id = input.id || randomUUID();
+            context = { ...context, taskId: id, provider: input.provider || "codex", stage: input.researchStage };
             if (jobs.has(id)) return reply(409, { error: "Task already running" });
             if (research && researchJobs >= 4) return reply(429, { error: "Research capacity reached" });
             if (!research && jobs.size - researchJobs >= 32) return reply(429, { error: "Task capacity reached" });
@@ -103,7 +106,7 @@ export function createWorker({
             };
             try {
                 const perform = async () => {
-                    if (controller.signal.aborted) throw Error("Task cancelled");
+                    if (controller.signal.aborted) throw Object.assign(Error(), { code: "TASK_CANCELLED" });
                     const current = (await config()).channels[input.channel];
                     if (!current || current.enabled === false || current.agent !== agent) {
                         throw Error("Channel disabled");
@@ -156,6 +159,9 @@ export function createWorker({
                 const result = await (queue ? queue.run(perform) : perform());
                 progress();
                 reply(200, result);
+            } catch (error) {
+                if (controller.signal.aborted) throw Object.assign(Error(), { code: "TASK_CANCELLED" });
+                throw error;
             } finally {
                 clearInterval(heartbeat);
                 progress();
@@ -168,12 +174,9 @@ export function createWorker({
                 }
             }
         } catch (error) {
-            reply(500, { code: error.code === "RESEARCH_STALLED" ? "RESEARCH_STALLED" : undefined,
-                error: error.code === "RESEARCH_STALLED" ?
-                "Research stopped after no provider execution events within the inactivity limit." :
-                error.code === "CLAUDE_FAILED" ?
-                "Claude failed. Check Claude authentication and service availability." :
-                "Worker failed. Check authentication and sandbox support." });
+            const code = failureCode(error);
+            logFailure(error, context, logger);
+            reply(500, { code, error: failureMessage(code) });
         }
     });
 }

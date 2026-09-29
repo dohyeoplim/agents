@@ -31,6 +31,18 @@ test("task persistence", async (t) => {
     assert.equal(delivered[0].answer, result.answer);
 });
 
+test("failure guidance", async (t) => {
+    const { store, runtime, delivered } = await fixture(t, async () => {
+        throw Object.assign(Error("private-token"), { code: "AUTH_REQUIRED" });
+    });
+    const id = await runtime.enqueue(input);
+    await runtime.idle();
+    assert.equal(store.snapshot().tasks[id].errorCode, "AUTH_REQUIRED");
+    assert.match(delivered[0].answer, /AUTH_REQUIRED/);
+    assert.ok(delivered[0].answer.includes(`!retry ${id.slice(0, 8)}`));
+    assert.ok(!delivered[0].answer.includes("private-token"));
+});
+
 test("task cancellation", async (t) => {
     let started;
     const ready = new Promise((resolve) => { started = resolve; });

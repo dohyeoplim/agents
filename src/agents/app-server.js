@@ -1,6 +1,7 @@
 import { startRpc, researchIdleTimeout } from "./rpc.js";
 import { runtimeHome } from "./home.js";
 import { notionConfig, notionEnabled, oauthConfig } from "../integrations/notion.js";
+import { providerError } from "../shared/diagnostics.js";
 
 export function threadOptions(cwd, model, policy = {}) {
     return {
@@ -21,7 +22,7 @@ export async function runAppServer({
     timeout = 600000, executable = "codex", home = process.env.CODEX_HOME || "/codex", toolToken, notionAccess = false,
     research = false,
 }) {
-    if (signal?.aborted) throw Error("Task cancelled");
+    if (signal?.aborted) throw providerError("codex", { code: "TASK_CANCELLED" });
     const codexHome = await runtimeHome(home);
     const notion = notionAccess === true && Boolean(toolToken) && await notionEnabled(codexHome);
     let threadId;
@@ -57,7 +58,8 @@ export async function runAppServer({
             }
             if (method === "turn/completed") {
                 if (params.turn?.status === "completed" && answer) resolveTurn({ session: threadId, answer });
-                else rejectTurn(Error("Codex run failed"));
+                else rejectTurn(providerError("codex", params.turn?.error,
+                    params.turn?.status === "completed" ? "PROVIDER_PROTOCOL" : "PROVIDER_FAILED"));
             }
         },
     });
@@ -81,7 +83,9 @@ export async function runAppServer({
                 ...options, ...(session ? { threadId: session, excludeTurns: true } : {}),
             });
             threadId = result.thread?.id;
-            if (!/^[0-9a-f-]{36}$/i.test(threadId || "")) throw Error("Invalid Codex session");
+            if (!/^[0-9a-f-]{36}$/i.test(threadId || "")) {
+                throw providerError("codex", { code: "PROVIDER_PROTOCOL" });
+            }
             await rpc.call("turn/start", {
                 threadId, approvalPolicy: "never", cwd,
                 sandboxPolicy: { type: options.sandbox === "read-only" ? "readOnly" : "workspaceWrite",

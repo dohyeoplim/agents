@@ -9,11 +9,11 @@ import { loadProfiles } from "../../src/agents/profiles.js";
 import { loadSkills } from "../../src/agents/skills.js";
 import { workerResponse } from "../../src/tasks/response.js";
 
-async function fixture(t, run, claude, configured = () => {}) {
+async function fixture(t, run, claude, configured = () => {}, logger = () => {}) {
     const root = await mkdtemp(path.join(os.tmpdir(), "worker-"));
     await mkdir(path.join(root, "inbox"));
     const worker = createWorker({
-        workspace: root, agent: "assistant", run, claude,
+        workspace: root, agent: "assistant", run, claude, logger,
         config: async () => {
             configured();
             return { channels: { C1: { name: "inbox", agent: "assistant", cwd: "inbox" } } };
@@ -34,6 +34,19 @@ async function fixture(t, run, claude, configured = () => {}) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
     });
 }
+
+test("worker failure diagnostics", async (t) => {
+    const logs = [];
+    const request = await fixture(t, async () => {
+        throw Object.assign(Error("private request sk-fake-secret"), { code: "AUTH_REQUIRED" });
+    }, undefined, undefined, (line) => logs.push(line));
+    const id = randomUUID();
+    const response = await request("/run", { id, channel: "C1", prompt: "private prompt", stream: true });
+    await assert.rejects(workerResponse(response), (error) => error.code === "AUTH_REQUIRED" &&
+        !error.message.includes("private"));
+    assert.deepEqual(logs.map(JSON.parse), [{ event: "operation_failed", code: "AUTH_REQUIRED",
+        component: "worker", provider: "codex", taskId: id }]);
+});
 
 test("worker context", async (t) => {
     let options;
@@ -112,7 +125,7 @@ test("research cancellation", async (t) => {
         researchId: randomUUID(), researchStage: "explore" });
     await ready;
     await request("/cancel", { id });
-    await assert.rejects(workerResponse(response), /Worker failed/);
+    await assert.rejects(workerResponse(response), /취소/);
 });
 
 test("worker authorization", async (t) => {

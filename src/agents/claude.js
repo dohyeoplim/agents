@@ -2,14 +2,17 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { idleWatchdog, researchIdleTimeout } from "./rpc.js";
 import { researchTools } from "../research/policy.js";
+import { providerError } from "../shared/diagnostics.js";
 
-const builtin = ["WebSearch", "WebFetch", "Read", "Glob", "Grep"];
+const builtin = ["WebSearch", "WebFetch"];
+const denied = ["Read", "Glob", "Grep", "Bash", "Edit", "Write", "NotebookEdit", "Agent"];
 
 export function claudeArguments(toolToken) {
     const servers = toolToken ? { personal: { type: "http", url: "http://gateway:8081/mcp", timeout: 95000,
         headers: { Authorization: "Bearer ${PERSONAL_TOOLS_TOKEN}" } } } : {};
     return ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--restricted",
-        "--setting-sources", "", "--settings", JSON.stringify({ disableAllHooks: true }),
+        "--setting-sources", "", "--settings", JSON.stringify({ disableAllHooks: true,
+            permissions: { deny: denied } }),
         "--disable-slash-commands", "--no-session-persistence", "--permission-mode", "dontAsk",
         "--strict-mcp-config", "--mcp-config", JSON.stringify({ mcpServers: servers }),
         "--tools", builtin.join(","), "--allowedTools",
@@ -19,7 +22,7 @@ export function claudeArguments(toolToken) {
 export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executable = "claude",
     home = process.env.CLAUDE_CONFIG_DIR || "/claude", spawnProcess = spawn,
     idleTimeout = researchIdleTimeout() }) {
-    if (signal?.aborted) return Promise.reject(Error("Task cancelled"));
+    if (signal?.aborted) return Promise.reject(providerError("claude", { code: "TASK_CANCELLED" }));
     return new Promise((resolve, reject) => {
         const child = spawnProcess(executable, claudeArguments(toolToken), {
             cwd, detached: true, stdio: ["pipe", "pipe", "pipe"],
@@ -31,6 +34,7 @@ export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executab
         let buffer = "";
         let result;
         let settled = false;
+        let stderr = "";
         const stop = () => { try { process.kill(-child.pid, "SIGKILL"); } catch {} };
         const finish = (error) => {
             if (settled) return;
@@ -38,11 +42,10 @@ export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executab
             watchdog.close();
             signal?.removeEventListener("abort", abort);
             stop();
-            if (error?.code === "RESEARCH_STALLED") reject(error);
-            else if (error) reject(Object.assign(Error("Claude run failed"), { code: "CLAUDE_FAILED" }));
+            if (error) reject(providerError("claude", error));
             else resolve(result);
         };
-        const abort = () => finish(true);
+        const abort = () => finish({ code: "TASK_CANCELLED" });
         const watchdog = idleWatchdog(idleTimeout, () => finish(Object.assign(
             Error("Claude produced no execution events within the inactivity limit"), { code: "RESEARCH_STALLED" },
         )));
@@ -51,7 +54,7 @@ export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executab
             buffer += decoder.write(data);
             let newline;
             while ((newline = buffer.indexOf("\n")) >= 0) {
-                if (newline > 4 * 1024 * 1024) return finish(true);
+                if (newline > 4 * 1024 * 1024) return finish({ code: "PROVIDER_PROTOCOL" });
                 const line = buffer.slice(0, newline);
                 buffer = buffer.slice(newline + 1);
                 if (!line.trim()) continue;
@@ -63,18 +66,25 @@ export function runClaude({ cwd, prompt, signal, toolToken, onActivity, executab
                         onActivity?.();
                     }
                     if (event.type !== "result") continue;
-                    if (event.is_error || event.subtype !== "success" || typeof event.result !== "string" ||
+                    if (event.is_error || event.subtype !== "success") {
+                        return finish(providerError("claude", [event.result, ...(Array.isArray(event.errors) ?
+                            event.errors.filter((value) => typeof value === "string") : [])].join("\n")));
+                    }
+                    if (typeof event.result !== "string" ||
                         !event.result.trim() || event.result.length > 200000 ||
-                        !/^[0-9a-f-]{36}$/i.test(event.session_id || "")) return finish(true);
+                        !/^[0-9a-f-]{36}$/i.test(event.session_id || "")) {
+                        return finish({ code: "PROVIDER_PROTOCOL" });
+                    }
                     result = { session: event.session_id, answer: event.result };
-                } catch { return finish(true); }
+                } catch { return finish({ code: "PROVIDER_PROTOCOL" }); }
             }
-            if (buffer.length > 4 * 1024 * 1024) finish(true);
+            if (buffer.length > 4 * 1024 * 1024) finish({ code: "PROVIDER_PROTOCOL" });
         });
-        child.stderr.resume();
-        child.stdin.on("error", () => finish(true));
-        child.on("error", () => finish(true));
-        child.on("close", (code) => finish(code !== 0 || !result || Boolean(buffer.trim())));
+        child.stderr.on("data", (data) => { stderr = (stderr + data.toString("utf8")).slice(-16384); });
+        child.stdin.on("error", (error) => finish(providerError("claude", stderr || error)));
+        child.on("error", (error) => finish(providerError("claude", error, "PROVIDER_START_FAILED")));
+        child.on("close", (code) => finish(code !== 0 || !result || Boolean(buffer.trim()) ?
+            providerError("claude", stderr, code === 0 ? "PROVIDER_PROTOCOL" : "PROVIDER_FAILED") : undefined));
         child.stdin.end(prompt);
         if (signal?.aborted) abort();
     });

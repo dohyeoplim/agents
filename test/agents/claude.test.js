@@ -16,7 +16,11 @@ test("Claude tool access", () => {
     const args = claudeArguments("secret-token");
     assert.ok(args.includes("--restricted"));
     assert.ok(args.includes("dontAsk"));
-    assert.equal(args[args.indexOf("--tools") + 1], "WebSearch,WebFetch,Read,Glob,Grep");
+    assert.equal(args[args.indexOf("--tools") + 1], "WebSearch,WebFetch");
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    for (const tool of ["Read", "Glob", "Grep", "Bash", "Agent"]) {
+        assert.ok(settings.permissions.deny.includes(tool));
+    }
     const allowed = args[args.indexOf("--allowedTools") + 1];
     assert.ok(allowed.includes("mcp__personal__research_source_save"));
     assert.ok(!allowed.includes("canvas_update"));
@@ -69,7 +73,23 @@ test("Claude failure handling", async () => {
             spawnProcess: () => child });
         if (cancel) controller.abort();
         else child.stdout.write('{"type":"result","is_error":true,"result":"private auth details"}\n');
-        await assert.rejects(promise, (error) => error.code === "CLAUDE_FAILED" &&
+        await assert.rejects(promise, (error) => error.code === (cancel ? "TASK_CANCELLED" : "PROVIDER_FAILED") &&
             !error.message.includes("private"));
+    }
+});
+
+test("Claude error categories", async () => {
+    for (const [event, stderr, code] of [
+        [undefined, "401 invalid token sk-fake-secret", "AUTH_REQUIRED"],
+        ["invalid json\n", "", "PROVIDER_PROTOCOL"],
+        [JSON.stringify({ type: "result", is_error: true, errors: ["Rate limit exceeded"] }) + "\n",
+            "", "RATE_LIMITED"],
+    ]) {
+        const child = processStub();
+        const promise = runClaude({ cwd: "/tmp", prompt: "Research", spawnProcess: () => child });
+        child.stderr.write(stderr);
+        if (event) child.stdout.write(event);
+        else child.emit("close", 1);
+        await assert.rejects(promise, (error) => error.code === code && !error.message.includes("sk-fake-secret"));
     }
 });

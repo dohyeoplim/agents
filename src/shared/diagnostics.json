@@ -1,0 +1,15 @@
+{
+    "AUTH_REQUIRED": "공급자 인증이 만료되었거나 유효하지 않습니다. 다시 로그인해 주세요.",
+    "RATE_LIMITED": "공급자 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+    "PROVIDER_UNAVAILABLE": "공급자 연결 또는 서비스에 문제가 있습니다.",
+    "PROVIDER_PROTOCOL": "공급자 응답 형식이 예상과 다릅니다. 실행 로그를 확인해 주세요.",
+    "PROVIDER_START_FAILED": "공급자 실행 파일을 시작하지 못했습니다.",
+    "PROVIDER_FAILED": "공급자 작업이 실패했습니다. 실행 로그의 오류 코드를 확인해 주세요.",
+    "TASK_TIMEOUT": "작업 실행 시간이 초과되었습니다.",
+    "TASK_CANCELLED": "작업이 취소되었습니다.",
+    "RESEARCH_STALLED": "공급자의 실행 활동이 없어 조사를 중단했습니다.",
+    "WORKER_FAILED": "작업 처리 중 오류가 발생했습니다. 실행 로그를 확인해 주세요.",
+    "SLACK_AUTH_REQUIRED": "Slack 인증 또는 권한을 확인해 주세요.",
+    "SLACK_RATE_LIMITED": "Slack 요청 한도에 도달했습니다.",
+    "SLACK_UNAVAILABLE": "Slack 연결 또는 서비스에 문제가 있습니다."
+}

@@ -54,3 +54,14 @@ test("progress failure", async () => {
         { type: "result", session: "session", answer: "Done" },
     ]), undefined, { onProgress: async () => { throw failure; } }), (error) => error === failure);
 });
+
+test("safe failures", async () => {
+    for (const code of ["AUTH_REQUIRED", "RATE_LIMITED", "PROVIDER_PROTOCOL", "secret-token"]) {
+        const expected = code === "secret-token" ? "WORKER_FAILED" : code;
+        const payload = { type: "error", code, error: "secret-token" };
+        for (const input of [response([payload]), Response.json(payload, { status: 500 })]) {
+            await assert.rejects(workerResponse(input), (error) =>
+                error.code === expected && !error.message.includes("secret-token"));
+        }
+    }
+});

@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { researchText } from "../research/copy.js";
+import { failureCode, failureMessage, logFailure } from "../shared/diagnostics.js";
+import copy from "./copy.json" with { type: "json" };
 
 const unfinished = ["queued", "running", "cancelling"];
 const concurrentTasks = 4;
@@ -132,16 +134,18 @@ export class TaskRuntime {
         let failure;
         try {
             result = await this.execute(task, controller.signal);
-        } catch {
-            failure = true;
+        } catch (error) {
+            failure = failureCode(error);
+            if (!controller.signal.aborted) logFailure(error, { component: "task", taskId: task.id });
         }
         await this.store.update((draft) => {
             const current = draft.tasks[task.id];
             const cancelled = controller.signal.aborted || current.status === "cancelling";
             current.status = cancelled ? "cancelled" : failure ? "failed" : "completed";
             current.finishedAt = Date.now();
+            if (failure && !cancelled) current.errorCode = failure;
             current.answer = cancelled ? "Task cancelled." : failure
-                ? `Task ${task.id.slice(0, 8)} failed. Use !retry ${task.id.slice(0, 8)} to try again.`
+                ? `${failureMessage(failure)} (${failure})\n${copy.retry.replace("{{id}}", task.id.slice(0, 8))}`
                 : result.answer.slice(0, 28000);
             current.delivery = "pending";
             if (!failure && !cancelled) {

@@ -1,4 +1,11 @@
+import { failureCode, failureMessage } from "../shared/diagnostics.js";
+
 export async function workerResponse(response, onText, { longRunning = false, onProgress } = {}) {
+    if (response.ok === false) {
+        const payload = await response.json().catch(() => ({}));
+        const code = failureCode(payload);
+        throw Object.assign(Error(failureMessage(code)), { code });
+    }
     if (!response.headers?.get("content-type")?.includes("application/x-ndjson")) return response.json();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -14,11 +21,8 @@ export async function workerResponse(response, onText, { longRunning = false, on
             const event = JSON.parse(buffer.slice(0, newline));
             buffer = buffer.slice(newline + 1);
             if (event.type === "error") {
-                const stalled = event.code === "RESEARCH_STALLED";
-                const message = stalled
-                    ? "Research stopped after no provider execution events within the inactivity limit"
-                    : "Worker failed";
-                throw Object.assign(Error(message), { code: stalled ? "RESEARCH_STALLED" : undefined });
+                const code = failureCode(event);
+                throw Object.assign(Error(failureMessage(code)), { code });
             }
             if (event.type === "text") {
                 if (typeof event.text !== "string" || event.text.length > 28000) throw Error("Invalid stream text");
