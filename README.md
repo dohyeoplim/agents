@@ -1,5 +1,5 @@
 <h3 align="center">
-    dohyeoplim/agents
+    research-agents
 </h3>
 
 <hr />
